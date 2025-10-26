@@ -36,6 +36,8 @@ def create_dataset(opt):
 
 def split_data(dataset_path):
     # train - test split
+    skipping_files = 0
+    
     for split_list, split_name in zip([train_list, test_list], ["train", "test"]):
         Path(f"{split_name}/video").mkdir(parents=True, exist_ok=True)
         Path(f"{split_name}/pose_estimation").mkdir(parents=True, exist_ok=True)
@@ -51,7 +53,7 @@ def split_data(dataset_path):
             # assert os.path.isfile(pose_estimation),    f"Missing wav: {pose_estimation}"
 
             if not os.path.isfile(video) or not os.path.isfile(pose_estimation):
-                print(f"Missing data for sequence {sequence}, skipping...")
+                skipping_files += 1
                 continue
 
             # copy
@@ -59,6 +61,8 @@ def split_data(dataset_path):
             shutil.copyfile(
                 pose_estimation, f"{split_name}/pose_estimation/{sequence}.json"
             )
+            
+    print(f"Skipped {skipping_files} files due to missing data.")
 
 
 def parse_opt():
