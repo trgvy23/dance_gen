@@ -7,7 +7,7 @@ import pickle
 import shutil
 from tqdm import tqdm
 
-from .slice import slice_dataset
+from slice import slice_dataset
 
 
 def fileToList(f):
