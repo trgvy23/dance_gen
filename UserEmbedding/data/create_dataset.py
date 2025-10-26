@@ -7,6 +7,8 @@ import pickle
 import shutil
 from tqdm import tqdm
 
+from .slice import slice_dataset
+
 
 def fileToList(f):
     out = open(f, "r").readlines()
@@ -26,28 +28,24 @@ def create_dataset(opt):
     split_data(opt.dataset_folder)
 
     # slice motions/music into sliding windows to create training dataset
-    # print("Slicing train data")
-    # slice_data(f"train/video", f"train/post_estimation")
-    # print("Slicing test data")
-    # slice_data(f"test/video", f"test/post_estimation")
-
-
-def slice_data(video_path, pose_estimation_path):
-    pass
+    print("Slicing train data")
+    slice_dataset(f"train/video", f"train/pose_estimation")
+    print("Slicing test data")
+    slice_dataset(f"test/video", f"test/pose_estimation")
 
 
 def split_data(dataset_path):
     # train - test split
     for split_list, split_name in zip([train_list, test_list], ["train", "test"]):
         Path(f"{split_name}/video").mkdir(parents=True, exist_ok=True)
-        Path(f"{split_name}/post_estimation").mkdir(parents=True, exist_ok=True)
+        Path(f"{split_name}/pose_estimation").mkdir(parents=True, exist_ok=True)
 
         for sequence in tqdm(split_list, desc=f"Processing {split_name} data"):
             if sequence in filter_list:
                 continue
 
             video = f"{dataset_path}/video/{sequence}.mp4"
-            pose_estimation = f"{dataset_path}/post_estimation/{sequence}.json"
+            pose_estimation = f"{dataset_path}/pose_estimation/{sequence}.json"
 
             # assert os.path.isfile(video), f"Missing motion: {video}"
             # assert os.path.isfile(pose_estimation),    f"Missing wav: {pose_estimation}"
@@ -59,7 +57,7 @@ def split_data(dataset_path):
             # copy
             shutil.copyfile(video, f"{split_name}/video/{sequence}.mp4")
             shutil.copyfile(
-                pose_estimation, f"{split_name}/post_estimation/{sequence}.json"
+                pose_estimation, f"{split_name}/pose_estimation/{sequence}.json"
             )
 
 
