@@ -3,10 +3,9 @@ import os
 from pathlib import Path
 
 import glob
-import os
 import pickle
 import shutil
-from pathlib import Path
+from tqdm import tqdm
 
 
 def fileToList(f):
@@ -27,10 +26,10 @@ def create_dataset(opt):
     split_data(opt.dataset_folder)
 
     # slice motions/music into sliding windows to create training dataset
-    print("Slicing train data")
-    slice_data(f"train/video", f"train/post_estimation")
-    print("Slicing test data")
-    slice_data(f"test/video", f"test/post_estimation")
+    # print("Slicing train data")
+    # slice_data(f"train/video", f"train/post_estimation")
+    # print("Slicing test data")
+    # slice_data(f"test/video", f"test/post_estimation")
 
 
 def slice_data(video_path, pose_estimation_path):
@@ -43,7 +42,7 @@ def split_data(dataset_path):
         Path(f"{split_name}/video").mkdir(parents=True, exist_ok=True)
         Path(f"{split_name}/post_estimation").mkdir(parents=True, exist_ok=True)
 
-        for sequence in split_list:
+        for sequence in tqdm(split_list, desc=f"Processing {split_name} data"):
             if sequence in filter_list:
                 continue
 
@@ -54,6 +53,7 @@ def split_data(dataset_path):
             # assert os.path.isfile(pose_estimation),    f"Missing wav: {pose_estimation}"
 
             if not os.path.isfile(video) or not os.path.isfile(pose_estimation):
+                print(f"Missing data for sequence {sequence}, skipping...")
                 continue
 
             # copy
