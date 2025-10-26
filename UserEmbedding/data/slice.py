@@ -66,6 +66,8 @@ def slice_motion_estimation(
             json.dump(slice_ests, write_file)
         start += length_frames
         idx += 1
+        
+    return idx
 
 
 def slice_dataset(
