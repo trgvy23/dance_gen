@@ -209,4 +209,4 @@ __marimo__/
 # Data
 datasets/
 UserEmbedding/datasets/
-data/splits/
+data/**/
