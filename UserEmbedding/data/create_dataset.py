@@ -2,8 +2,7 @@ import argparse
 import os
 from pathlib import Path
 
-import glob
-import pickle
+import re
 import shutil
 from tqdm import tqdm
 
@@ -16,14 +15,24 @@ def fileToList(f):
     out = [x for x in out if len(x)]
     return out
 
+#TODO: Uncomment phần này khi đã chia lại train / test split
+# filter_list = set(fileToList("splits/ignore_list.txt"))
+# train_list = set(fileToList("splits/crossmodal_train.txt"))
+# test_list = set(fileToList("splits/crossmodal_test.txt"))
 
-filter_list = set(fileToList("splits/ignore_list.txt"))
-train_list = set(fileToList("splits/crossmodal_train.txt"))
-test_list = set(fileToList("splits/crossmodal_test.txt"))
+CAM_RE = re.compile(r"_c\d{2}_")
+
+def load_and_normalize(path):
+    return set(CAM_RE.sub("_cAll_", x) for x in fileToList(path))
+
+filter_list = load_and_normalize("splits/ignore_list.txt")
+train_list  = load_and_normalize("splits/crossmodal_train.txt")
+test_list   = load_and_normalize("splits/crossmodal_test.txt")
 
 
 def create_dataset(opt):
     # split the data according to the splits files
+    #TODO: Chia lại train / test split. Hiện tại đang dùng split của AIST++ để code chạy được
     print("Creating train / test split")
     split_data(opt.dataset_folder)
 
@@ -49,6 +58,8 @@ def split_data(dataset_path):
             video = f"{dataset_path}/video/{sequence}.mp4"
             pose_estimation = f"{dataset_path}/pose_estimation/{sequence}.json"
 
+            #NOTE: Hiện tại pose estimation chưa đủ, nên tạm comment phần assert lại.
+            #TODO: Uncomment lại khi đã có đủ pose estimation
             # assert os.path.isfile(video), f"Missing motion: {video}"
             # assert os.path.isfile(pose_estimation),    f"Missing wav: {pose_estimation}"
 
