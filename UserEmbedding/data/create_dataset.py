@@ -2,7 +2,6 @@ import argparse
 import os
 from pathlib import Path
 
-import re
 import shutil
 from tqdm import tqdm
 
@@ -20,10 +19,8 @@ def fileToList(f):
 # train_list = set(fileToList("splits/crossmodal_train.txt"))
 # test_list = set(fileToList("splits/crossmodal_test.txt"))
 
-CAM_RE = re.compile(r"_c\d{2}_")
-
 def load_and_normalize(path):
-    return set(CAM_RE.sub("_cAll_", x) for x in fileToList(path))
+    return set(x.replace("_cAll_", "_c01_") for x in fileToList(path))
 
 filter_list = load_and_normalize("splits/ignore_list.txt")
 train_list  = load_and_normalize("splits/crossmodal_train.txt")
