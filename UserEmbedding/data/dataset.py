@@ -184,6 +184,10 @@ class DanceDataset(Dataset):
         pose_estimations = sorted(
             glob.glob(os.path.join(pose_estimation_path, "*.pkl"))
         )
+        
+        print("Loading videos from:", video_path)
+        print("Loading pose estimations from:", pose_estimation_path)
+        print(f"Found {len(videos)} videos and {len(pose_estimations)} pose estimations.")
 
         assert len(videos) == len(
             pose_estimations
