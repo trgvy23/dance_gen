@@ -180,9 +180,9 @@ class DanceDataset(Dataset):
         pose_estimation_path = os.path.join(split_root, "pose_estimation_sliced")
 
         # sort motions and sounds
-        videos = sorted(glob.glob(os.path.join(video_path, "*.mp4")))
+        videos = sorted(glob.glob(os.path.join(video_path, "*.npy")))
         pose_estimations = sorted(
-            glob.glob(os.path.join(pose_estimation_path, "*.pkl"))
+            glob.glob(os.path.join(pose_estimation_path, "*.json"))
         )
         
         print("Loading videos from:", video_path)
