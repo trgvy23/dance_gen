@@ -144,10 +144,10 @@ class DanceDataset(Dataset):
     def __getitem__(self, idx):
         return self.data["videos"][idx], self.data["pose_estimations"][idx]
 
-    def get_video(video_path: str):
+    def get_video(self, video_path: str):
         return np.load(video_path, allow_pickle=True)  # (T, H, W, 3)
 
-    def read_pose_estimation(json_path, vid_size=None):
+    def read_pose_estimation(self, json_path, vid_size=None):
         with open(json_path, "r") as read_file:
             results = json.load(read_file)
         kpts_all = []
@@ -184,16 +184,11 @@ class DanceDataset(Dataset):
         pose_estimations = sorted(
             glob.glob(os.path.join(pose_estimation_path, "*.json"))
         )
-        
-        print("Loading videos from:", video_path)
-        print("Loading pose estimations from:", pose_estimation_path)
-        print(f"Found {len(videos)} videos and {len(pose_estimations)} pose estimations.")
 
         assert len(videos) == len(
             pose_estimations
         ), f"Count mismatch: videos={len(videos)} pose_estimations={len(pose_estimations)}"
         
-        print(f"Found {len(videos)} video and pose estimation pairs in {split_root}.")
 
         all_videos, all_pose_estimations = [], []
 
