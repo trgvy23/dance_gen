@@ -12,6 +12,7 @@ import torch
 from torch.utils.data import Dataset
 
 from decord import VideoReader
+from tqdm import tqdm
 
 
 def halpe2h36m(x):
@@ -192,7 +193,7 @@ class DanceDataset(Dataset):
 
         all_videos, all_pose_estimations = [], []
 
-        for video_filename, pose_est_filename in zip(videos, pose_estimations):
+        for video_filename, pose_est_filename in tqdm(zip(videos, pose_estimations), total=len(videos), desc="Loading data"):
             v_name = os.path.splitext(os.path.basename(video_filename))[0]
             p_name = os.path.splitext(os.path.basename(pose_est_filename))[0]
             assert (
