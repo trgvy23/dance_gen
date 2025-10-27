@@ -97,14 +97,15 @@ class DanceDataset(Dataset):
         self,
         data_path: str,
         backup_path: str,
-        train: bool,
+        train: bool = True,
         force_reload: bool = False,
+        no_cache: bool = False,
     ):
         self.data_path = data_path
-        self.raw_fps = 60
-        self.data_fps = 30
-        assert self.data_fps <= self.raw_fps
-        self.data_stride = self.raw_fps // self.data_fps
+        # self.raw_fps = 60
+        # self.data_fps = 30
+        # assert self.data_fps <= self.raw_fps
+        # self.data_stride = self.raw_fps // self.data_fps
 
         self.train = train
         self.name = "Train" if self.train else "Test"
@@ -121,8 +122,9 @@ class DanceDataset(Dataset):
         else:
             print("Loading dataset...")
             data = self.load_aistpp()  # Call this last
-            with open(os.path.join(backup_path, pickle_name), "wb") as f:
-                pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
+            if not no_cache:
+                with open(os.path.join(backup_path, pickle_name), "wb") as f:
+                    pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
 
         logging.info(
             f"Loaded {self.name} Dataset With Dimensions: \n\tVideos: {data['videos'].shape}, \n\tPose Estimations: {data['pose_estimations'].shape}"
@@ -174,8 +176,8 @@ class DanceDataset(Dataset):
         #   |    |- videos
         #   |    |- pose_estimation
 
-        video_path = os.path.join(split_root, "videos")
-        pose_estimation_path = os.path.join(split_root, "pose_estimations")
+        video_path = os.path.join(split_root, "video_sliced")
+        pose_estimation_path = os.path.join(split_root, "pose_estimation_sliced")
 
         # sort motions and sounds
         videos = sorted(glob.glob(os.path.join(video_path, "*.mp4")))
