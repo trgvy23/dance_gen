@@ -20,7 +20,6 @@ from torch.utils.data import DataLoader
 from data.dataset import DanceDataset
 from src.backbones import DSTformer
 
-
 class UserEmbedding:
     # TODO: build input pipeline for MotionBERT
     def __init__(self, args, checkpoint_path=""):

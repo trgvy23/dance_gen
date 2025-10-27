@@ -1,6 +1,5 @@
 import argparse
 
-
 def parse_train_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", default="runs/train", help="project/name")
