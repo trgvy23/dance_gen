@@ -1,1 +1,1 @@
-from DSTformer import DSTformer
+from src.backbones.DSTformer import DSTformer
