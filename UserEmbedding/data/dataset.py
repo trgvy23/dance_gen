@@ -2,10 +2,10 @@ import glob
 import os
 import pickle
 import json
+import re
 from pathlib import Path
 import copy
 import logging
-
 
 import numpy as np
 import torch
@@ -111,6 +111,8 @@ class DanceDataset(Dataset):
         self.train = train
         self.name = "Train" if self.train else "Test"
 
+        self.genre2id, self.dancer2id = {}, {}
+
         pickle_name = "processed_train_data.pkl" if train else "processed_test_data.pkl"
 
         backup_path = Path(backup_path)
@@ -143,9 +145,14 @@ class DanceDataset(Dataset):
         return self.length
 
     def __getitem__(self, idx):
-        return self.data["videos"][idx], self.data["pose_estimations"][idx], self.data["labels"][idx]
+        return (
+            self.data["videos"][idx],
+            self.data["pose_estimations"][idx],
+            self.data["gerne_labels"][idx],
+            self.data["dancer_labels"][idx],
+        )
 
-    def get_video(self, video_path: str):
+    def read_video(self, video_path: str):
         return np.load(video_path, allow_pickle=True)  # (T, H, W, 3)
 
     def read_pose_estimation(self, json_path, vid_size=None):
@@ -166,6 +173,24 @@ class DanceDataset(Dataset):
         else:
             pose_estimation = crop_scale(kpts_all)
         return pose_estimation.astype(np.float32)  # (T, 17, 3)
+
+    def parse_aist_labels(self, filename):
+        # name: "gBR_sBM_cAll_d04_mBR0_ch02"
+        m = re.match(r"^(g[A-Z]{2})_.*_m([A-Z]{2}\d+)_", filename)
+        assert m, f"Bad AIST++ name: {filename}"
+        genre_code = m.group(1)  # e.g., gBR
+        dancer_code = m.group(2)  # e.g., BR0
+        return genre_code, dancer_code
+
+    def read_label(self, filename):
+        genre_code, dancer_code = self.parse_aist_labels(filename)
+        if genre_code not in self.genre2id:
+            self.genre2id[genre_code] = len(self.genre2id)
+        if dancer_code not in self.dancer2id:
+            self.dancer2id[dancer_code] = len(self.dancer2id)
+        genre_id = self.genre2id[genre_code]
+        dancer_id = self.dancer2id[dancer_code]
+        return genre_id, dancer_id
 
     def load_aistpp(self):
         # open data path
@@ -189,35 +214,47 @@ class DanceDataset(Dataset):
         assert len(videos) == len(
             pose_estimations
         ), f"Count mismatch: videos={len(videos)} pose_estimations={len(pose_estimations)}"
-        
 
-        all_videos, all_pose_estimations, all_labels = [], [], []
+        all_videos, all_pose_estimations, all_gerne_labels, all_dancer_labels = (
+            [],
+            [],
+            [],
+            [],
+        )
 
-        for video_filename, pose_est_filename in tqdm(zip(videos, pose_estimations), total=len(videos), desc="Loading data"):
+        for video_filename, pose_est_filename in tqdm(
+            zip(videos, pose_estimations), total=len(videos), desc="Loading data"
+        ):
             v_name = os.path.splitext(os.path.basename(video_filename))[0]
             p_name = os.path.splitext(os.path.basename(pose_est_filename))[0]
             assert (
                 v_name == p_name
             ), f"Name mismatch: {video_filename} vs {pose_est_filename}"
 
-            video = self.get_video(video_filename)
+            video = self.read_video(video_filename)
             all_videos.append(video)
-            
+
             video_height = video.shape[1]
             video_width = video.shape[2]
 
-            pose_est = self.read_pose_estimation(pose_est_filename, vid_size=(video_width, video_height))
+            pose_est = self.read_pose_estimation(
+                pose_est_filename, vid_size=(video_width, video_height)
+            )
             all_pose_estimations.append(pose_est)
-            
-            all_labels.append(v_name)
+
+            genre_id, dancer_id = self.read_label(v_name)
+            all_gerne_labels.append(genre_id)
+            all_dancer_labels.append(dancer_id)
 
         all_videos = np.array(all_videos)  # N x T x H x W x 3
         all_pose_estimations = np.array(all_pose_estimations)  # N x T x 17 x 3
-        all_labels = np.array(all_labels) # N x 1
+        all_gerne_labels = np.array(all_gerne_labels)  # N
+        all_dancer_labels = np.array(all_dancer_labels)  # N
 
         data = {
             "videos": all_videos,
             "pose_estimations": all_pose_estimations,
-            "labels": all_labels,
+            "gerne_labels": all_gerne_labels,
+            "dancer_labels": all_dancer_labels,
         }
         return data

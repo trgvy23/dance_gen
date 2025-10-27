@@ -19,6 +19,7 @@ from torch.utils.data import DataLoader
 
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from accelerate.state import AcceleratorState
+from pytorch_metric_learning import distances, losses, miners, reducers, testers
 
 from data.dataset import DanceDataset
 from src.backbones import DSTformer
@@ -44,6 +45,37 @@ class UserEmbedding:
                 map_location=self.accelerator.device,
                 weights_only=False,
             )
+            
+        #TODO: define model
+        # self.model = ...
+        # self.optimizer = optim.Adam(model.parameters(), lr=0.01)
+        # self.num_epochs = 1
+        
+        ############### Metric Learning ###############
+        #self.distance = distances.CosineSimilarity()
+        self.distance = distances.LpDistance(normalize_embeddings=True, p=2)
+        self.reducer = reducers.ThresholdReducer(low=0)
+        self.dancer_loss_func = losses.TripletMarginLoss(
+            margin=0.4,
+            distance=self.distance,
+            reducer=self.reducer,
+        )
+        self.gerne_loss_func = losses.TripletMarginLoss(
+            margin=0.2, 
+            distance=self.distance,
+            reducer=self.reducer,
+        )
+        
+        self.gerne_miner = miners.TripletMarginMiner(
+            margin=0.2,
+            distance=self.distance,
+            type_of_triplets="all",
+        )
+        self.dancer_miner = miners.TripletMarginMiner(
+            margin=0.4,
+            distance=self.distance,
+            type_of_triplets="all",
+        )
 
     def prepare(self, objects):
         return self.accelerator.prepare(*objects)
@@ -80,7 +112,38 @@ class UserEmbedding:
 
         self.accelerator.wait_for_everyone()
 
-        for batch_idx, (video, pose_est, label) in enumerate(load_loop(train_data_loader)):
-            print(video.shape, pose_est.shape)
-            break
+        for batch_idx, (video, pose_est, gerne_label, dancer_label) in enumerate(
+            load_loop(train_data_loader)
+        ):
+            video = video.to(self.accelerator.device)
+            pose_est = pose_est.to(self.accelerator.device)
+            gerne_label = gerne_label.to(self.accelerator.device)
+            dancer_label = dancer_label.to(self.accelerator.device)
             
+            print("Batch idx:", batch_idx)
+            print("Video shape:", video.shape)
+            print("Pose est shape:", pose_est.shape)
+            print("Gerne labels:", gerne_label)
+            print("Dancer labels:", dancer_label)
+            
+            break  # TODO: Remove this break after implementing the training loop
+            
+            #TODO: forward pass
+            # self.optimizer.zero_grad()
+            # embeddings = ...  # Compute embeddings using the model
+            
+            # triplets_d = miner_dancer(embeddings, dancer_labels)
+            # triplets_g = miner_gerne(embeddings, gerne_labels)
+            
+            # loss_dancer = dancer_loss_func(embeddings, dancer_labels, triplets_d)
+            # loss_gerne = gerne_loss_func(embeddings, gerne_labels, triplets_g)
+            # loss = loss_d_weights * loss_dancer + loss_g_weights * loss_gerne
+            
+            # loss.backward()
+            # optimizer.step()
+            # if batch_idx % 20 == 0:
+            #     print(
+            #         "Epoch {} Iteration {}: Loss = {}, Number of mined triplets = {}".format(
+            #             epoch, batch_idx, loss, mining_func.num_triplets
+            #         )
+            #     )
