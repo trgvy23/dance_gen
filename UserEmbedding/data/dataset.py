@@ -188,6 +188,8 @@ class DanceDataset(Dataset):
         assert len(videos) == len(
             pose_estimations
         ), f"Count mismatch: videos={len(videos)} pose_estimations={len(pose_estimations)}"
+        
+        print(f"Found {len(videos)} video and pose estimation pairs in {split_root}.")
 
         all_videos, all_pose_estimations = [], []
 
