@@ -18,60 +18,7 @@ import torch.optim as optim
 from torch.utils.data import DataLoader
 
 from data.dataset import DanceDataset
-from backbones import DSTformer
-
-
-def parse_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "--config",
-        type=str,
-        default="configs/pretrain.yaml",
-        help="Path to the config file.",
-    )
-    parser.add_argument(
-        "-c",
-        "--checkpoint",
-        default="checkpoint",
-        type=str,
-        metavar="PATH",
-        help="checkpoint directory",
-    )
-    parser.add_argument(
-        "-p",
-        "--pretrained",
-        default="checkpoint",
-        type=str,
-        metavar="PATH",
-        help="pretrained checkpoint directory",
-    )
-    parser.add_argument(
-        "-r",
-        "--resume",
-        default="",
-        type=str,
-        metavar="FILENAME",
-        help="checkpoint to resume (file name)",
-    )
-    parser.add_argument(
-        "-e",
-        "--evaluate",
-        default="",
-        type=str,
-        metavar="FILENAME",
-        help="checkpoint to evaluate (file name)",
-    )
-    parser.add_argument(
-        "-ms",
-        "--selection",
-        default="latest_epoch.bin",
-        type=str,
-        metavar="FILENAME",
-        help="checkpoint to finetune (file name)",
-    )
-    parser.add_argument("-sd", "--seed", default=0, type=int, help="random seed")
-    opts = parser.parse_args()
-    return opts
+from src.backbones import DSTformer
 
 
 class UserEmbedding:
