@@ -143,7 +143,7 @@ class DanceDataset(Dataset):
         return self.length
 
     def __getitem__(self, idx):
-        return self.data["videos"][idx], self.data["pose_estimations"][idx]
+        return self.data["videos"][idx], self.data["pose_estimations"][idx], self.data["labels"][idx]
 
     def get_video(self, video_path: str):
         return np.load(video_path, allow_pickle=True)  # (T, H, W, 3)
@@ -191,7 +191,7 @@ class DanceDataset(Dataset):
         ), f"Count mismatch: videos={len(videos)} pose_estimations={len(pose_estimations)}"
         
 
-        all_videos, all_pose_estimations = [], []
+        all_videos, all_pose_estimations, all_labels = [], [], []
 
         for video_filename, pose_est_filename in tqdm(zip(videos, pose_estimations), total=len(videos), desc="Loading data"):
             v_name = os.path.splitext(os.path.basename(video_filename))[0]
@@ -208,12 +208,16 @@ class DanceDataset(Dataset):
 
             pose_est = self.read_pose_estimation(pose_est_filename, vid_size=(video_width, video_height))
             all_pose_estimations.append(pose_est)
+            
+            all_labels.append(v_name)
 
         all_videos = np.array(all_videos)  # N x T x H x W x 3
         all_pose_estimations = np.array(all_pose_estimations)  # N x T x 17 x 3
+        all_labels = np.array(all_labels) # N x 1
 
         data = {
             "videos": all_videos,
             "pose_estimations": all_pose_estimations,
+            "labels": all_labels,
         }
         return data

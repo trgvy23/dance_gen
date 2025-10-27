@@ -80,6 +80,7 @@ class UserEmbedding:
 
         self.accelerator.wait_for_everyone()
 
-        for video, pose_est in enumerate(load_loop(train_data_loader)):
+        for batch_idx, (video, pose_est, label) in enumerate(load_loop(train_data_loader)):
             print(video.shape, pose_est.shape)
             break
+            
