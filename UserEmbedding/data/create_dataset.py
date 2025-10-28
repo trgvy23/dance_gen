@@ -35,9 +35,9 @@ def create_dataset(opt):
 
     # slice motions/music into sliding windows to create training dataset
     print("Slicing train data")
-    slice_dataset(f"train/video", f"train/pose_estimation")
+    slice_dataset(f"train/video", f"train/pose_estimation", width=opt.width, height=opt.height)
     print("Slicing test data")
-    slice_dataset(f"test/video", f"test/pose_estimation")
+    slice_dataset(f"test/video", f"test/pose_estimation", width=opt.width, height=opt.height)
 
 
 def split_data(dataset_path):

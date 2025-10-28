@@ -1,9 +1,12 @@
 import argparse
 
+
 def parse_train_opt():
     parser = argparse.ArgumentParser()
     parser.add_argument("--project", default="runs/train", help="project/name")
-    parser.add_argument("--exp_name", default="user_embedding", help="save to project/name")
+    parser.add_argument(
+        "--exp_name", default="user_embedding", help="save to project/name"
+    )
     parser.add_argument("--data_path", type=str, default="data/", help="raw data path")
     parser.add_argument(
         "--processed_data_dir",
@@ -29,6 +32,13 @@ def parse_train_opt():
     parser.add_argument("--ema_interval", type=int, default=1, help="ema every x steps")
     parser.add_argument(
         "--checkpoint", type=str, default="", help="trained checkpoint path (optional)"
+    )
+    ### Pretrains ###
+    parser.add_argument(
+        --"motionbert_pretrain",
+        type=str,
+        default="checkpoint/motionbert/FT_MB_lite_MB_ft_h36m_global_lite/best_epoch.bin",
+        help="pretrained MotionBERT checkpoint path",
     )
     opt = parser.parse_args()
     return opt
