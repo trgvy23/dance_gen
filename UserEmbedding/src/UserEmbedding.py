@@ -20,9 +20,47 @@ from torch.utils.data import DataLoader
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from accelerate.state import AcceleratorState
 from pytorch_metric_learning import distances, losses, miners, reducers, testers
+from pytorch_metric_learning.samplers import MPerClassSampler
 
 from data.dataset import DanceDataset
 from src.backbones import DSTformer
+
+
+def build_hierarchical_triplets(y_d, y_g):
+    # y_d, y_g: [B] int tensors
+    B = y_d.size(0)
+    device = y_d.device
+    eye = torch.eye(B, dtype=torch.bool, device=device)
+
+    same_d = (y_d[:, None] == y_d[None, :]) & ~eye
+    same_g = (y_g[:, None] == y_g[None, :]) & ~eye
+    diff_g = ~same_g & ~eye
+
+    # A: pos = same dancer, neg = same genre & different dancer
+    A_pos = torch.where(same_d)
+    A_negs_mask = same_g & ~same_d
+    a1, p1, n1 = [], [], []
+    for a, p in zip(*A_pos):
+        negs = torch.where(A_negs_mask[a])[0]
+        if len(negs) == 0:
+            continue
+        a1 += [a.item()] * len(negs)
+        p1 += [p.item()] * len(negs)
+        n1 += negs.tolist()
+
+    # B: pos = same genre diff dancer, neg = different genre
+    B_pos_mask = same_g & ~same_d
+    a2, p2, n2 = [], [], []
+    for a, p in zip(*torch.where(B_pos_mask)):
+        negs = torch.where(diff_g[a])[0]
+        if len(negs) == 0:
+            continue
+        a2 += [a.item()] * len(negs)
+        p2 += [p.item()] * len(negs)
+        n2 += negs.tolist()
+
+    to_t = lambda xs: torch.tensor(xs, device=device, dtype=torch.long)
+    return (to_t(a1), to_t(p1), to_t(n1)), (to_t(a2), to_t(p2), to_t(n2))
 
 
 class UserEmbedding:
@@ -36,7 +74,7 @@ class UserEmbedding:
         state = AcceleratorState()
         num_processes = state.num_processes
 
-        self.accelerator.wait_for_everyone()
+        # self.accelerator.wait_for_everyone()
 
         checkpoint = None
         if checkpoint_path != "":
@@ -45,37 +83,72 @@ class UserEmbedding:
                 map_location=self.accelerator.device,
                 weights_only=False,
             )
-            
-        #TODO: define model
+
+        # TODO: define model
         # self.model = ...
         # self.optimizer = optim.Adam(model.parameters(), lr=0.01)
         # self.num_epochs = 1
-        
+
         ############### Metric Learning ###############
-        #self.distance = distances.CosineSimilarity()
-        self.distance = distances.LpDistance(normalize_embeddings=True, p=2)
-        self.reducer = reducers.ThresholdReducer(low=0)
-        self.dancer_loss_func = losses.TripletMarginLoss(
-            margin=0.4,
+        self.distance = distances.CosineSimilarity()
+        # self.distance = distances.LpDistance(normalize_embeddings=True, p=2)
+        self.reducer = reducers.MeanReducer()
+
+        # NOTE: TripletMarginLoss has been commented out and replaced with MultiSimilarityLoss
+        # self.dancer_loss_func = losses.TripletMarginLoss(
+        #     margin=0.4,
+        #     distance=self.distance,
+        #     reducer=self.reducer,
+        # )
+        # self.gerne_loss_func = losses.TripletMarginLoss(
+        #     margin=0.2,
+        #     distance=self.distance,
+        #     reducer=self.reducer,
+        # )
+
+        self.dancer_loss_func = losses.MultiSimilarityLoss(
+            alpha=2,
+            beta=50,
+            base=0.5,
             distance=self.distance,
             reducer=self.reducer,
         )
-        self.gerne_loss_func = losses.TripletMarginLoss(
-            margin=0.2, 
+        self.genre_loss_func = losses.MultiSimilarityLoss(
+            alpha=2,
+            beta=50,
+            base=0.5,
             distance=self.distance,
             reducer=self.reducer,
         )
-        
-        self.gerne_miner = miners.TripletMarginMiner(
-            margin=0.2,
-            distance=self.distance,
-            type_of_triplets="all",
+
+        # NOTE: TripletMarginMiner
+        # self.gerne_miner = miners.TripletMarginMiner(
+        #     margin=0.2,
+        #     distance=self.distance,
+        #     type_of_triplets="all",
+        # )
+        # self.dancer_miner = miners.TripletMarginMiner(
+        #     margin=0.4,
+        #     distance=self.distance,
+        #     type_of_triplets="all",
+        # )
+
+        self.dancer_miner = miners.MultiSimilarityMiner(
+            epsilon=0.1, distance=self.distance
         )
-        self.dancer_miner = miners.TripletMarginMiner(
-            margin=0.4,
-            distance=self.distance,
-            type_of_triplets="all",
+        self.genre_miner = miners.MultiSimilarityMiner(
+            epsilon=0.1, distance=self.distance
         )
+
+        self.lambda_genre = getattr(args, "lambda_genre", 0.5)
+        self.lambda_dancer = getattr(args, "lambda_dancer", 1.0)
+
+        self.use_triplet_reg = getattr(args, "use_triplet_reg", False)
+        if self.use_triplet_reg:
+            self.triplet_reg = losses.TripletMarginLoss(
+                margin=0.2, distance=self.distance
+            )
+            self.mu_triplet = getattr(args, "mu_triplet", 0.15)
 
     def prepare(self, objects):
         return self.accelerator.prepare(*objects)
@@ -93,14 +166,34 @@ class UserEmbedding:
         num_cpus = multiprocessing.cpu_count()
 
         print("Creating data loaders...")
+
+        all_dancer_labels = torch.tensor(
+            [
+                train_dataset[i][3]  # index 3 = dancer_label in your tuple
+                for i in range(len(train_dataset))
+            ]
+        )
+
+        sampler = MPerClassSampler(
+            labels=all_dancer_labels, m=4, length_before_new_iter=len(all_dancer_labels)
+        )
         train_data_loader = DataLoader(
             train_dataset,
             batch_size=args.batch_size,
-            shuffle=True,
+            sampler=sampler,
             num_workers=min(int(num_cpus * 0.75), 32),
             pin_memory=True,
             drop_last=True,
         )
+
+        # train_data_loader = DataLoader(
+        #     train_dataset,
+        #     batch_size=args.batch_size,
+        #     shuffle=True,
+        #     num_workers=min(int(num_cpus * 0.75), 32),
+        #     pin_memory=True,
+        #     drop_last=True,
+        # )
 
         train_data_loader = self.accelerator.prepare(train_data_loader)
 
@@ -110,7 +203,7 @@ class UserEmbedding:
             else lambda x: x
         )
 
-        self.accelerator.wait_for_everyone()
+        # self.accelerator.wait_for_everyone()
 
         for batch_idx, (video, pose_est, gerne_label, dancer_label) in enumerate(
             load_loop(train_data_loader)
@@ -119,31 +212,34 @@ class UserEmbedding:
             pose_est = pose_est.to(self.accelerator.device)
             gerne_label = gerne_label.to(self.accelerator.device)
             dancer_label = dancer_label.to(self.accelerator.device)
-            
+
             print("Batch idx:", batch_idx)
             print("Video shape:", video.shape)
             print("Pose est shape:", pose_est.shape)
             print("Gerne labels:", gerne_label)
             print("Dancer labels:", dancer_label)
-            
+
             break  # TODO: Remove this break after implementing the training loop
-            
-            #TODO: forward pass
-            # self.optimizer.zero_grad()
+
+            # TODO: forward pass
             # embeddings = ...  # Compute embeddings using the model
-            
-            # triplets_d = miner_dancer(embeddings, dancer_labels)
-            # triplets_g = miner_gerne(embeddings, gerne_labels)
-            
-            # loss_dancer = dancer_loss_func(embeddings, dancer_labels, triplets_d)
-            # loss_gerne = gerne_loss_func(embeddings, gerne_labels, triplets_g)
-            # loss = loss_d_weights * loss_dancer + loss_g_weights * loss_gerne
-            
-            # loss.backward()
-            # optimizer.step()
-            # if batch_idx % 20 == 0:
-            #     print(
-            #         "Epoch {} Iteration {}: Loss = {}, Number of mined triplets = {}".format(
-            #             epoch, batch_idx, loss, mining_func.num_triplets
-            #         )
-            #     )
+            # embeddings = F.normalize(embeddings, p=2, dim=1)
+
+            # triplets_d = self.dancer_miner(embeddings, dancer_labels)
+            # triplets_g = self.gerne_miner(embeddings, gerne_labels)
+
+            # loss_dancer = self.dancer_loss_func(embeddings, dancer_label, indices_tuple=triplets_d)
+            # loss_gerne = self.genre_loss_func(embeddings, genre_label, indices_tuple=triplets_g)
+            # loss = self.lambda_dancer * loss_dancer + self.lambda_genre * loss_gerne
+
+            # if self.use_triplet_reg:
+            #     T1, T2 = build_hierarchical_triplets(dancer_label, genre_label)  # see helper below
+            #     L1 = self.triplet_reg(embeddings, dancer_label, indices_tuple=T1)  # same-dancer vs same-genre-diff-dancer
+            #     L2 = self.triplet_reg(embeddings, genre_label,  indices_tuple=T2)  # same-genre-diff-dancer vs diff-genre
+            #     loss = loss + self.mu_triplet * (L1 + 0.5 * L2)
+
+            # self.optimizer.zero_grad()
+            # self.accelerator.backward(loss)
+            # self.optimizer.step()
+            # if self.accelerator.is_main_process and (batch_idx % 20 == 0):
+            #     print(f"[{batch_idx}] L_dancer={Ld.item():.4f}  L_genre={Lg.item():.4f}  total={loss.item():.4f}")
