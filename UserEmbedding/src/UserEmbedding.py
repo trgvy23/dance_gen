@@ -233,7 +233,7 @@ class UserEmbedding:
 
             # TODO: forward pass
             embeddings = self.motionbert_backbone(
-                video
+                pose_est
             )  # Compute embeddings using the model
             embeddings = F.normalize(embeddings, p=2, dim=1)
 
