@@ -230,7 +230,7 @@ class UserEmbedding:
             break  # TODO: Remove this break after implementing the training loop
 
             # TODO: forward pass
-            # embeddings = ...  # Compute embeddings using the model
+            # embeddings = self.motionbert_backbon(video)  # Compute embeddings using the model
             # embeddings = F.normalize(embeddings, p=2, dim=1)
 
             # triplets_d = self.dancer_miner(embeddings, dancer_labels)

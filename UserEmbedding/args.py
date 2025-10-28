@@ -35,7 +35,7 @@ def parse_train_opt():
     )
     ### Pretrains ###
     parser.add_argument(
-        --"motionbert_pretrain",
+        "--motionbert_pretrain",
         type=str,
         default="checkpoint/motionbert/FT_MB_lite_MB_ft_h36m_global_lite/best_epoch.bin",
         help="pretrained MotionBERT checkpoint path",
