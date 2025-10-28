@@ -232,7 +232,7 @@ class UserEmbedding:
             dancer_label = dancer_label.to(self.accelerator.device)
 
             # TODO: forward pass
-            embeddings = self.motionbert_backbon(
+            embeddings = self.motionbert_backbone(
                 video
             )  # Compute embeddings using the model
             embeddings = F.normalize(embeddings, p=2, dim=1)
