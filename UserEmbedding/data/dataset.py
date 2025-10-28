@@ -136,6 +136,8 @@ class DanceDataset(Dataset):
         self.data = {
             "videos": data["videos"],
             "pose_estimations": data["pose_estimations"],
+            "gerne_labels": data["gerne_labels"],
+            "dancer_labels": data["dancer_labels"],
         }
 
         assert len(data["videos"]) == len(data["pose_estimations"])
