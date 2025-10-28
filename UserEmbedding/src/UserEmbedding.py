@@ -74,7 +74,7 @@ class UserEmbedding:
         state = AcceleratorState()
         num_processes = state.num_processes
 
-        # self.accelerator.wait_for_everyone()
+        self.accelerator.wait_for_everyone()
 
         checkpoint = None
         if checkpoint_path != "":
@@ -159,8 +159,8 @@ class UserEmbedding:
             data_path=args.data_path,
             backup_path=args.processed_data_dir,
             train=True,
-            force_reload=args.force_reload,
-            no_cache=args.no_cache,
+            force_reload=getattr(args, "force_reload", False),
+            cache_data=getattr(args, "cache_data", False),
         )
 
         num_cpus = multiprocessing.cpu_count()
@@ -203,7 +203,7 @@ class UserEmbedding:
             else lambda x: x
         )
 
-        # self.accelerator.wait_for_everyone()
+        self.accelerator.wait_for_everyone()
 
         for batch_idx, (video, pose_est, gerne_label, dancer_label) in enumerate(
             load_loop(train_data_loader)

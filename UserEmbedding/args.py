@@ -18,7 +18,7 @@ def parse_train_opt():
         "--force_reload", action="store_true", help="force reloads the datasets"
     )
     parser.add_argument(
-        "--no_cache", action="store_true", help="don't reuse / cache loaded dataset"
+        "--cache_data", action="store_true", help="cache loaded dataset"
     )
     parser.add_argument(
         "--save_interval",

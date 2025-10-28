@@ -100,7 +100,7 @@ class DanceDataset(Dataset):
         backup_path: str,
         train: bool = True,
         force_reload: bool = False,
-        no_cache: bool = False,
+        cache_data: bool = False,
     ):
         self.data_path = data_path
         # self.raw_fps = 60
@@ -125,7 +125,7 @@ class DanceDataset(Dataset):
         else:
             print("Loading dataset...")
             data = self.load_aistpp()  # Call this last
-            if not no_cache:
+            if cache_data:
                 with open(os.path.join(backup_path, pickle_name), "wb") as f:
                     pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
 
