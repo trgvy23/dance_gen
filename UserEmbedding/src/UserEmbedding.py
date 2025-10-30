@@ -237,9 +237,10 @@ class UserEmbedding:
             dancer_label = dancer_label.to(self.accelerator.device)
 
             # TODO: forward pass
-            embeddings = self.motionbert_backbone(
-                pose_est
-            )  # Compute embeddings using the model
+            with self.accelerator.autocast():
+                embeddings = self.motionbert_backbone(
+                    pose_est
+                )  # Compute embeddings using the model
             
             assert embeddings.dim() == 3  # [B, T, D]
             embeddings = embeddings.mean(dim=1)  # [B, D]
