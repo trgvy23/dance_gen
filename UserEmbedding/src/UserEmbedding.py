@@ -94,9 +94,9 @@ class UserEmbedding:
             maxlen=243,
             num_joints=17,
         )
-        if torch.cuda.is_available():
-            self.motionbert_backbone = nn.DataParallel(self.motionbert_backbone)
-            self.motionbert_backbone = self.motionbert_backbone.cuda()
+        # if torch.cuda.is_available():
+        #     self.motionbert_backbone = nn.DataParallel(self.motionbert_backbone)
+        #     self.motionbert_backbone = self.motionbert_backbone.cuda()
 
         # print('Loading checkpoint', args.motionbert_checkpoint)
         # checkpoint = torch.load(args.motionbert_checkpoint, map_location=lambda storage, loc: storage)
@@ -214,6 +214,11 @@ class UserEmbedding:
         # )
 
         train_data_loader = self.accelerator.prepare(train_data_loader)
+        self.motionbert_backbone, self.optimizer, train_data_loader = (
+            self.accelerator.prepare(
+                self.motionbert_backbone, self.optimizer, train_data_loader
+            )
+        )
 
         load_loop = (
             partial(tqdm, position=1, desc="Batch")
@@ -235,6 +240,10 @@ class UserEmbedding:
             embeddings = self.motionbert_backbone(
                 pose_est
             )  # Compute embeddings using the model
+            
+            assert embeddings.dim() == 3  # [B, T, D]
+            embeddings = embeddings.mean(dim=1)  # [B, D]
+            
             embeddings = F.normalize(embeddings, p=2, dim=1)
 
             triplets_d = self.dancer_miner(embeddings, dancer_label)
