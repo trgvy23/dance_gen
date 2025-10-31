@@ -23,7 +23,7 @@ from pytorch_metric_learning import distances, losses, miners, reducers, testers
 from pytorch_metric_learning.samplers import MPerClassSampler
 
 from data.dataset import DanceDataset
-from src.backbones import DSTformer
+from src.models import UserEmbeddingNet
 
 
 def build_hierarchical_triplets(y_d, y_g):
@@ -64,7 +64,6 @@ def build_hierarchical_triplets(y_d, y_g):
 
 
 class UserEmbedding:
-    # TODO: build input pipeline for MotionBERT
     def __init__(self, args, checkpoint_path=""):
         ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
         self.accelerator = Accelerator(kwargs_handlers=[ddp_kwargs])
@@ -81,29 +80,10 @@ class UserEmbedding:
                 weights_only=False,
             )
 
-        # TODO: hardcode args for MotionBERT for now: https://github.com/Walter0807/MotionBERT/blob/main/configs/pose3d/MB_ft_h36m_global_lite.yaml
-        self.motionbert_backbone = DSTformer(
-            dim_in=3,
-            dim_out=3,
-            dim_feat=256,
-            dim_rep=512,
-            depth=5,
-            num_heads=8,
-            mlp_ratio=4,
-            norm_layer=partial(nn.LayerNorm, eps=1e-6),
-            maxlen=243,
-            num_joints=17,
-        )
-        # if torch.cuda.is_available():
-        #     self.motionbert_backbone = nn.DataParallel(self.motionbert_backbone)
-        #     self.motionbert_backbone = self.motionbert_backbone.cuda()
-
-        # print('Loading checkpoint', args.motionbert_checkpoint)
-        # checkpoint = torch.load(args.motionbert_checkpoint, map_location=lambda storage, loc: storage)
-        # self.motionbert_backbone.load_state_dict(checkpoint['model_pos'], strict=True)
+        self.user_embedding_net = UserEmbeddingNet()
 
         self.optimizer = optim.Adam(
-            self.motionbert_backbone.parameters(), lr=0.0005, weight_decay=0.01
+            self.user_embedding_net.parameters(), lr=0.0005, weight_decay=0.01
         )
         # self.num_epochs = 1
 
@@ -213,10 +193,9 @@ class UserEmbedding:
         #     drop_last=True,
         # )
 
-        train_data_loader = self.accelerator.prepare(train_data_loader)
-        self.motionbert_backbone, self.optimizer, train_data_loader = (
+        self.user_embedding_net, self.optimizer, train_data_loader = (
             self.accelerator.prepare(
-                self.motionbert_backbone, self.optimizer, train_data_loader
+                self.user_embedding_net, self.optimizer, train_data_loader
             )
         )
 
@@ -237,15 +216,11 @@ class UserEmbedding:
             dancer_label = dancer_label.to(self.accelerator.device)
 
             # TODO: forward pass
+            # TODO: add many arguments and inputs
             with self.accelerator.autocast():
-                embeddings = self.motionbert_backbone(
-                    pose_est
+                embeddings = self.user_embedding_net(
+                    video, pose_est
                 )  # Compute embeddings using the model
-            
-            assert embeddings.dim() == 3  # [B, T, D]
-            embeddings = embeddings.mean(dim=1)  # [B, D]
-            
-            embeddings = F.normalize(embeddings, p=2, dim=1)
 
             triplets_d = self.dancer_miner(embeddings, dancer_label)
             triplets_g = self.gerne_miner(embeddings, gerne_label)
