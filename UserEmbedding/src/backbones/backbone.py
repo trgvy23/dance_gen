@@ -59,11 +59,10 @@ class MotionBERTBackbone(nn.Module):
 class VideoPrismBackbone(nn.Module):
     def __init__(self,):
         super(VideoPrismBackbone, self).__init__()
-        raise NotImplementedError
-
+        
     def forward(self, x):
         """
         x: [B, T, input_dim]
         return: [B, T, embed_dim]
         """
-        raise NotImplementedError
+        pass
