@@ -24,7 +24,7 @@ from pytorch_metric_learning.samplers import MPerClassSampler
 
 from data.dataset import DanceDataset
 from src.models import UserEmbeddingNet
-from src.MotionBert import MotionBERTBackbone, VideoPrismBackbone
+from src.backbone import MotionBERTBackbone, VideoPrismBackbone
 
 
 def build_hierarchical_triplets(y_d, y_g):
