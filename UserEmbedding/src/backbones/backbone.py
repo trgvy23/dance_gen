@@ -46,6 +46,8 @@ class MotionBERTBackbone(nn.Module):
         """
         out = self.dstformer(x)
         
+        print("Output shape: ", out.shape)
+        
         assert out.dim() == 3  # [B, T, D]
         
         #TODO: do we need an MLP here?
