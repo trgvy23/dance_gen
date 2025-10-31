@@ -48,10 +48,10 @@ class MotionBERTBackbone(nn.Module):
         
         print("Output shape: ", out.shape)
         
-        assert out.dim() == 3  # [B, T, D]
+        assert out.dim() == 4  # [B, F, S, D]
         
         #TODO: do we need an MLP here?
-        out = out.mean(dim=1)  # [B, D]
+        # out = out.mean(dim=1)  # [B, D]
         out = F.normalize(out, p=2, dim=1)
         
         print('MotionBERTBackbone output shape:', out.shape)
