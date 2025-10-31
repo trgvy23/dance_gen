@@ -1,14 +1,7 @@
 from functools import partial
 import torch, torch.nn as nn, torch.nn.functional as F
 
-from src.backbones import DSTformer
-
-def freeze_module(m: nn.Module, eval_mode: bool = True):
-    for p in m.parameters():
-        p.requires_grad = False
-    if eval_mode:
-        m.eval()
-    return m
+from src.MotionBert.DSTformer import DSTformer
 
 class MotionBERTBackbone(nn.Module):
     def __init__(self,):
@@ -29,6 +22,7 @@ class MotionBERTBackbone(nn.Module):
             num_joints=17,
         )
         
+        #TODO: load pretrained MotionBERT weights
         # if torch.cuda.is_available():
         #     self.motionbert_backbone = nn.DataParallel(self.motionbert_backbone)
         #     self.motionbert_backbone = self.motionbert_backbone.cuda()
@@ -37,7 +31,8 @@ class MotionBERTBackbone(nn.Module):
         # checkpoint = torch.load(args.motionbert_checkpoint, map_location=lambda storage, loc: storage)
         # self.motionbert_backbone.load_state_dict(checkpoint['model_pos'], strict=True)
         
-        self.dstformers = freeze_module(self.dstformer, eval_mode=True)
+        self.dstformer.requires_grad_(False)
+        
 
     def forward(self, x):
         """
@@ -45,8 +40,6 @@ class MotionBERTBackbone(nn.Module):
         return: [B, T, embed_dim]
         """
         out = self.dstformer(x)
-        
-        print("Output shape: ", out.shape)
         
         assert out.dim() == 4  # [B, F, S, D]
         
@@ -61,6 +54,8 @@ class MotionBERTBackbone(nn.Module):
 class VideoPrismBackbone(nn.Module):
     def __init__(self,):
         super(VideoPrismBackbone, self).__init__()
+        
+        # self.video_prism.requires_grad_(False)
         
     def forward(self, x):
         """

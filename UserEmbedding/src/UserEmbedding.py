@@ -24,6 +24,7 @@ from pytorch_metric_learning.samplers import MPerClassSampler
 
 from data.dataset import DanceDataset
 from src.models import UserEmbeddingNet
+from src.MotionBert import MotionBERTBackbone, VideoPrismBackbone
 
 
 def build_hierarchical_triplets(y_d, y_g):
@@ -80,7 +81,10 @@ class UserEmbedding:
                 weights_only=False,
             )
 
-        self.user_embedding_net = UserEmbeddingNet()
+        self.motionbert = MotionBERTBackbone()
+        self.video_prism = VideoPrismBackbone()
+        
+        self.user_embedding_net = UserEmbeddingNet(self.motionbert, self.video_prism)
 
         self.optimizer = optim.Adam(
             self.user_embedding_net.parameters(), lr=0.0005, weight_decay=0.01

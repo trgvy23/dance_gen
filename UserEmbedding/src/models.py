@@ -4,8 +4,7 @@ import torch.nn.functional as F
 from typing import Optional
 from torch import Tensor
 
-from src.backbones import MotionBERTBackbone, VideoPrismBackbone
-
+from src.backbone import MotionBERTBackbone, VideoPrismBackbone
 
 def _get_activation_fn(activation):
     """Return an activation function given a string"""
@@ -188,19 +187,17 @@ class MeanPoolMLP(nn.Module):
 
 
 class UserEmbeddingNet(nn.Module):
-    def __init__(self, freeze_backbones=True):
+    def __init__(self, motionbert: MotionBERTBackbone, video_prism: VideoPrismBackbone):
         super(UserEmbeddingNet, self).__init__()
-        self.motionbert = MotionBERTBackbone()
-        self.video_prism = VideoPrismBackbone()
+        self.motionbert = motionbert
+        self.video_prism = video_prism
 
-        if freeze_backbones:
-            for p in self.motionbert.parameters():
-                p.requires_grad = False
-            for p in self.video_prism.parameters():
-                p.requires_grad = False
-            self.motionbert.eval()
-            self.video_prism.eval()
-        self.freeze_backbones = freeze_backbones
+            # for p in self.motionbert.parameters():
+            #     p.requires_grad = False
+            # for p in self.video_prism.parameters():
+            #     p.requires_grad = False
+            # self.motionbert.eval()
+            # self.video_prism.eval()
         
         self.mean_pool_mlp = MeanPoolMLP(d_in=512, d_hidden=512, d_out=256, p_drop=0.1)
 
@@ -211,11 +208,7 @@ class UserEmbeddingNet(nn.Module):
         x: [B, T, input_dim]
         return: [B, embed_dim]
         """
-        if self.freeze_backbones:
-            with torch.no_grad():
-                # video_feat = self.video_prism(video)
-                pose_feat = self.motionbert(pose_est)
-        else:
+        with torch.no_grad():
             # video_feat = self.video_prism(video)
             pose_feat = self.motionbert(pose_est)
         pose_feat = self.mean_pool_mlp(pose_feat)
