@@ -1,7 +1,8 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from typing import Optional, Tensor
+from typing import Optional
+from torch import Tensor
 
 from src.backbones import MotionBERTBackbone, VideoPrismBackbone
 
