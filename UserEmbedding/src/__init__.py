@@ -1,3 +1,3 @@
-from backbone import MotionBERTBackbone, VideoPrismBackbone
-from models import UserEmbeddingNet
-from UserEmbedding import UserEmbedding
+from src.backbone import MotionBERTBackbone, VideoPrismBackbone
+from src.models import UserEmbeddingNet
+from src.UserEmbedding import UserEmbedding
