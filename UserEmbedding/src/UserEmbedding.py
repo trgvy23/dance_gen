@@ -223,7 +223,7 @@ class UserEmbedding:
                 )  # Compute embeddings using the model
 
             triplets_d = self.dancer_miner(embeddings, dancer_label)
-            triplets_g = self.gerne_miner(embeddings, gerne_label)
+            triplets_g = self.genre_miner(embeddings, gerne_label)
 
             loss_dancer = self.dancer_loss_func(
                 embeddings, dancer_label, indices_tuple=triplets_d
