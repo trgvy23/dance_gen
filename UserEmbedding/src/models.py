@@ -211,5 +211,12 @@ class UserEmbeddingNet(nn.Module):
         with torch.no_grad():
             # video_feat = self.video_prism(video)
             pose_feat = self.motionbert(pose_est)
+            video_feat = self.video_prism(video)
         pose_feat = self.mean_pool_mlp(pose_feat)
-        return pose_feat
+        
+        print(f'Pose feature shape: {pose_feat.shape}')
+        print(f'Video feature shape: {video_feat.shape}')
+        
+        embeddings = torch.cat([pose_feat, video_feat], dim=-1)
+        
+        return embeddings

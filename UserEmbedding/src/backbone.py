@@ -1,4 +1,7 @@
 from functools import partial
+import jax
+import jax.numpy as jnp
+from videoprism import models as vp
 import torch, torch.nn as nn, torch.nn.functional as F
 
 from src.MotionBert.DSTformer import DSTformer
@@ -52,14 +55,24 @@ class MotionBERTBackbone(nn.Module):
         return out
     
 class VideoPrismBackbone(nn.Module):
-    def __init__(self,):
+    def __init__(self, model_name = 'videoprism_public_v1_base', use_bfloat16 = False):
         super(VideoPrismBackbone, self).__init__()
         
-        # self.video_prism.requires_grad_(False)
+        self.fprop_dtype = jnp.bfloat16 if use_bfloat16 else None
+        self.flax_model = vp.get_model(model_name, fprop_dtype=self.fprop_dtype)
+        self.loaded_state = vp.load_pretrained_weights(model_name)
         
-    def forward(self, x):
+    def forward(self, x, train=False):
         """
         x: [B, T, input_dim]
         return: [B, T, embed_dim]
         """
-        pass
+        if self.fprop_dtype is not None:
+            x = x.astype(jnp.bfloat16)
+            
+        print(f'Input shape: {x.shape} [type: {x.dtype}]')
+        
+        embeddings, _ = self.flax_model.apply(self.loaded_state, x, train=train)
+        print(f'Encoded embedding shape: {embeddings.shape} [type: {embeddings.dtype}]')
+
+        return embeddings

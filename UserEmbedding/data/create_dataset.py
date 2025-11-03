@@ -84,10 +84,10 @@ def parse_opt():
     )
     # 680 480
     parser.add_argument(
-        "--width", type=int, default=None, help="width to resize videos to"
+        "--width", type=int, default=288, help="width to resize videos to"
     )
     parser.add_argument(
-        "--height", type=int, default=None, help="height to resize videos to"
+        "--height", type=int, default=288, help="height to resize videos to"
     )
     parser.add_argument(
         "--length_frames",
