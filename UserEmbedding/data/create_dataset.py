@@ -1,11 +1,12 @@
 import argparse
 import os
 from pathlib import Path
-
 import shutil
 from tqdm import tqdm
+import subprocess
 
 from slice import slice_dataset
+import generate_pose_data
 
 
 def fileToList(f):
@@ -29,6 +30,10 @@ test_list   = load_and_normalize("splits/crossmodal_test.txt")
 
 def create_dataset(opt):
     # split the data according to the splits files
+
+    # run Alpha Pose to get 2D pose estimation
+    generate_pose_data.generate_pose_estimation()
+
     #TODO: Chia lại train / test split. Hiện tại đang dùng split của AIST++ để code chạy được
     print("Creating train / test split")
     split_data(opt.dataset_folder)
