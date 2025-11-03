@@ -215,3 +215,4 @@ data/**/
 *.sh
 
 UserEmbedding/scr/videoprism_repo/
+/UserEmbedding/src/videoprism_repo
