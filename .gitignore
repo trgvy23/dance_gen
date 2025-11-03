@@ -213,3 +213,5 @@ data/**/
 
 # Bash
 *.sh
+
+UserEmbedding/scr/videoprism_repo/
