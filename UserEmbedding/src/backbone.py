@@ -67,12 +67,15 @@ class VideoPrismBackbone(nn.Module):
         x: [B, T, input_dim]
         return: [B, T, embed_dim]
         """
-        if self.fprop_dtype is not None:
-            x = x.astype(jnp.bfloat16)
+        if isinstance(x, torch.Tensor):
+            x = x.detach().cpu().numpy()
+        x = jnp.asarray(x, dtype=self.fprop_dtype or jnp.float32)
             
         print(f'Input shape: {x.shape} [type: {x.dtype}]')
         
         embeddings, _ = self.flax_model.apply(self.loaded_state, x, train=train)
         print(f'Encoded embedding shape: {embeddings.shape} [type: {embeddings.dtype}]')
+        embeddings = np.asarray(embeddings, dtype=np.float32)
+        embeddings = torch.from_numpy(embeddings).to(pose_feat.device)
 
         return embeddings
