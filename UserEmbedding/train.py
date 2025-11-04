@@ -4,10 +4,8 @@ from src.UserEmbedding import UserEmbedding
 import os
 
 # Make JAX stay on CPU and not preallocate GPU memory
-os.environ.setdefault("JAX_PLATFORM_NAME", "cpu")
-os.environ.setdefault("XLA_PYTHON_CLIENT_PREALLOCATE", "false")
-os.environ.setdefault("XLA_PYTHON_CLIENT_MEM_FRACTION", "0.0")
-
+os.environ["JAX_PLATFORMS"] = "cpu"        # new-style
+os.environ["JAX_PLATFORM_NAME"] = "cpu"  
 
 def train(args):
     model = UserEmbedding(args.checkpoint)
