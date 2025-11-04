@@ -82,7 +82,7 @@ class UserEmbedding:
             )
 
         self.motionbert = MotionBERTBackbone()
-        self.video_prism = VideoPrismBackbone()
+        self.video_prism = VideoPrismBackbone(use_bfloat16=True)
         
         self.user_embedding_net = UserEmbeddingNet(self.motionbert, self.video_prism)
 
