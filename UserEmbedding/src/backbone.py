@@ -6,16 +6,6 @@ import torch, torch.nn as nn, torch.nn.functional as F
 
 from src.MotionBert.DSTformer import DSTformer
 
-import os
-
-# Force JAX to use CPU only, for every process that imports this file
-os.environ["JAX_PLATFORMS"] = "cpu"        # new-style flag
-os.environ["JAX_PLATFORM_NAME"] = "cpu"    # legacy flag
-os.environ["XLA_PYTHON_CLIENT_PREALLOCATE"] = "false"
-
-import jax
-jax.config.update("jax_platform_name", "cpu")
-
 class MotionBERTBackbone(nn.Module):
     def __init__(self,):
         super(MotionBERTBackbone, self).__init__()
