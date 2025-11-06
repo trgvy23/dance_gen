@@ -6,6 +6,7 @@ from torch import Tensor
 
 from src.backbone import MotionBERTBackbone, VideoPrismBackbone
 
+
 def _get_activation_fn(activation):
     """Return an activation function given a string"""
     if activation == "relu":
@@ -186,20 +187,40 @@ class MeanPoolMLP(nn.Module):
         return F.normalize(x, dim=-1)
 
 
+class VideoMeanPoolMLP(nn.Module):
+    def __init__(self, d_in, d_hidden, d_out, p_drop=0.1):
+        super().__init__()
+        self.mlp = nn.Sequential(
+            nn.Linear(d_in, d_hidden),
+            nn.GELU(),
+            nn.Dropout(p_drop),
+            nn.Linear(d_hidden, d_out),
+        )
+
+    def forward(self, x):
+        # x: [B, T, D]
+        x = x.mean(dim=1)  # [B, D]  (here D = d_in = 768)
+        x = self.mlp(x)  # [B, d_out]  (256)
+        return x
+
+
 class UserEmbeddingNet(nn.Module):
     def __init__(self, motionbert: MotionBERTBackbone, video_prism: VideoPrismBackbone):
         super(UserEmbeddingNet, self).__init__()
         self.motionbert = motionbert
         self.video_prism = video_prism
 
-            # for p in self.motionbert.parameters():
-            #     p.requires_grad = False
-            # for p in self.video_prism.parameters():
-            #     p.requires_grad = False
-            # self.motionbert.eval()
-            # self.video_prism.eval()
-        
+        # for p in self.motionbert.parameters():
+        #     p.requires_grad = False
+        # for p in self.video_prism.parameters():
+        #     p.requires_grad = False
+        # self.motionbert.eval()
+        # self.video_prism.eval()
+
         self.mean_pool_mlp = MeanPoolMLP(d_in=512, d_hidden=512, d_out=256, p_drop=0.1)
+        self.video_mean_pool_mlp = VideoMeanPoolMLP(
+            d_in=768, d_hidden=512, d_out=256, p_drop=0.1
+        )
 
         # TODO: Úm ba la xì bùa
 
@@ -212,10 +233,13 @@ class UserEmbeddingNet(nn.Module):
             pose_feat = self.motionbert(pose_est)
             video_feat = self.video_prism(video)
         pose_feat = self.mean_pool_mlp(pose_feat)
-        
-        print(f'Pose feature shape: {pose_feat.shape}')
-        print(f'Video feature shape: {video_feat.shape}')
-        
+        video_feat = self.video_mean_pool_mlp(video_feat)
+
+        print(f"Pose feature shape: {pose_feat.shape}")
+        print(f"Video feature shape: {video_feat.shape}")
+
         embeddings = torch.cat([pose_feat, video_feat], dim=-1)
-        
+
+        print(f"User embedding shape: {embeddings.shape}")
+
         return embeddings
