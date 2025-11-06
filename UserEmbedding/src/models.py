@@ -5,167 +5,60 @@ from typing import Optional
 from torch import Tensor
 
 from src.backbone import MotionBERTBackbone, VideoPrismBackbone
+from src import RotaryEmbedding
 
-
-def _get_activation_fn(activation):
-    """Return an activation function given a string"""
-    if activation == "relu":
-        return F.relu
-    if activation == "gelu":
-        return F.gelu
-    if activation == "glu":
-        return F.glu
-    raise RuntimeError(f"activation should be relu/gelu, not {activation}.")
-
-
-class SelfAttentionLayer(nn.Module):
+class CrossAttentionFusion(nn.Module):
     def __init__(
-        self, d_model, nhead, dropout=0.0, activation="relu", normalize_before=False
+        self,
+        d_pose: int,
+        d_video: int,
+        d_model: int = 512,
+        n_heads: int = 8,
+        d_out: int = 256,
+        p_drop: float = 0.1,
+        use_rotary: bool = False,
     ):
         super().__init__()
-        self.self_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
+        self.pose_proj  = nn.Linear(d_pose,  d_model)
+        self.video_proj = nn.Linear(d_video, d_model)
 
-        self.norm = nn.LayerNorm(d_model)
-        self.dropout = nn.Dropout(dropout)
-
-        self.activation = _get_activation_fn(activation)
-        self.normalize_before = normalize_before
-
-        self._reset_parameters()
-
-    def _reset_parameters(self):
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
-
-    def with_pos_embed(self, tensor, pos: Optional[Tensor]):
-        return tensor if pos is None else tensor + pos
-
-    def forward_post(
-        self,
-        tgt,
-        tgt_mask: Optional[Tensor] = None,
-        tgt_key_padding_mask: Optional[Tensor] = None,
-        query_pos: Optional[Tensor] = None,
-    ):
-        q = k = self.with_pos_embed(tgt, query_pos)
-        tgt2, attn_weights = self.self_attn(
-            q, k, value=tgt, attn_mask=tgt_mask, key_padding_mask=tgt_key_padding_mask
+        self.cross_attn = nn.MultiheadAttention(
+            d_model, n_heads, dropout=p_drop, batch_first=True
         )
-        tgt = tgt + self.dropout(tgt2)
-        tgt = self.norm(tgt)
-
-        return tgt, attn_weights
-
-    def forward_pre(
-        self,
-        tgt,
-        tgt_mask: Optional[Tensor] = None,
-        tgt_key_padding_mask: Optional[Tensor] = None,
-        query_pos: Optional[Tensor] = None,
-    ):
-        tgt2 = self.norm(tgt)
-        q = k = self.with_pos_embed(tgt2, query_pos)
-        tgt2, attn_weights = self.self_attn(
-            q, k, value=tgt2, attn_mask=tgt_mask, key_padding_mask=tgt_key_padding_mask
+        self.norm_q = nn.LayerNorm(d_model)
+        self.norm_o = nn.LayerNorm(d_model)
+        self.mlp = nn.Sequential(
+            nn.Linear(d_model, d_model * 2),
+            nn.GELU(),
+            nn.Dropout(p_drop),
+            nn.Linear(d_model * 2, d_out),
         )
-        tgt = tgt + self.dropout(tgt2)
 
-        return tgt, attn_weights
+        self.use_rotary = use_rotary
+        self.rotary = RotaryEmbedding(dim=d_model) if use_rotary else None
 
-    def forward(
-        self,
-        tgt,
-        tgt_mask: Optional[Tensor] = None,
-        tgt_key_padding_mask: Optional[Tensor] = None,
-        query_pos: Optional[Tensor] = None,
-    ):
-        if self.normalize_before:
-            return self.forward_pre(tgt, tgt_mask, tgt_key_padding_mask, query_pos)
-        return self.forward_post(tgt, tgt_mask, tgt_key_padding_mask, query_pos)
+    def forward(self, pose_seq, video_seq):
+        # pose_seq:  [B, T_p, d_pose]
+        # video_seq: [B, T_v, d_video]
+        q = self.pose_proj(pose_seq)     # [B, T_p, d_model]
+        k = self.video_proj(video_seq)   # [B, T_v, d_model]
+        v = k
 
+        q = self.norm_q(q)
 
-class CrossAttentionLayer(nn.Module):
-    def __init__(
-        self, d_model, nhead, dropout=0.0, activation="relu", normalize_before=False
-    ):
-        super().__init__()
-        self.multihead_attn = nn.MultiheadAttention(d_model, nhead, dropout=dropout)
+        if self.use_rotary:
+            q = self.rotary.rotate_queries_or_keys(q)
+            k = self.rotary.rotate_queries_or_keys(k)
 
-        self.norm = nn.LayerNorm(d_model)
-        self.dropout = nn.Dropout(dropout)
+        # pose attends to video
+        attn_out, _ = self.cross_attn(q, k, v)   # [B, T_p, d_model]
+        x = self.norm_o(q + attn_out)            # residual
 
-        self.activation = _get_activation_fn(activation)
-        self.normalize_before = normalize_before
+        # global pooling + MLP to final embedding
+        x = x.mean(dim=1)                        # [B, d_model]
+        x = self.mlp(x)                          # [B, d_out]
+        return x
 
-        self._reset_parameters()
-
-    def _reset_parameters(self):
-        for p in self.parameters():
-            if p.dim() > 1:
-                nn.init.xavier_uniform_(p)
-
-    def with_pos_embed(self, tensor, pos: Optional[Tensor]):
-        return tensor if pos is None else tensor + pos
-
-    def forward_post(
-        self,
-        tgt,
-        memory,
-        memory_mask: Optional[Tensor] = None,
-        memory_key_padding_mask: Optional[Tensor] = None,
-        pos: Optional[Tensor] = None,
-        query_pos: Optional[Tensor] = None,
-    ):
-        tgt2, attn_weights = self.multihead_attn(
-            query=self.with_pos_embed(tgt, query_pos),
-            key=self.with_pos_embed(memory, pos),
-            value=memory,
-            attn_mask=memory_mask,
-            key_padding_mask=memory_key_padding_mask,
-        )
-        tgt = tgt + self.dropout(tgt2)
-        tgt = self.norm(tgt)
-
-        return tgt, attn_weights
-
-    def forward_pre(
-        self,
-        tgt,
-        memory,
-        memory_mask: Optional[Tensor] = None,
-        memory_key_padding_mask: Optional[Tensor] = None,
-        pos: Optional[Tensor] = None,
-        query_pos: Optional[Tensor] = None,
-    ):
-        tgt2 = self.norm(tgt)
-        tgt2 = self.multihead_attn(
-            query=self.with_pos_embed(tgt2, query_pos),
-            key=self.with_pos_embed(memory, pos),
-            value=memory,
-            attn_mask=memory_mask,
-            key_padding_mask=memory_key_padding_mask,
-        )[0]
-        tgt = tgt + self.dropout(tgt2)
-
-        return tgt
-
-    def forward(
-        self,
-        tgt,
-        memory,
-        memory_mask: Optional[Tensor] = None,
-        memory_key_padding_mask: Optional[Tensor] = None,
-        pos: Optional[Tensor] = None,
-        query_pos: Optional[Tensor] = None,
-    ):
-        if self.normalize_before:
-            return self.forward_pre(
-                tgt, memory, memory_mask, memory_key_padding_mask, pos, query_pos
-            )
-        return self.forward_post(
-            tgt, memory, memory_mask, memory_key_padding_mask, pos, query_pos
-        )
 
 
 class MeanPoolMLP(nn.Module):
@@ -217,12 +110,20 @@ class UserEmbeddingNet(nn.Module):
         # self.motionbert.eval()
         # self.video_prism.eval()
 
-        self.mean_pool_mlp = MeanPoolMLP(d_in=512, d_hidden=512, d_out=256, p_drop=0.1)
-        self.video_mean_pool_mlp = VideoMeanPoolMLP(
-            d_in=768, d_hidden=512, d_out=256, p_drop=0.1
+        # self.mean_pool_mlp = MeanPoolMLP(d_in=512, d_hidden=512, d_out=256, p_drop=0.1)
+        # self.video_mean_pool_mlp = VideoMeanPoolMLP(
+        #     d_in=768, d_hidden=512, d_out=256, p_drop=0.1
+        # )
+        
+        self.fusion = CrossAttentionFusion(
+            d_pose=512,
+            d_video=768,   # VideoPrism dim
+            d_model=512,
+            n_heads=8,
+            d_out=256,
+            p_drop=0.1,
+            use_rotary=True,
         )
-
-        # TODO: Úm ba la xì bùa
 
     def forward(self, video, pose_est):
         """
@@ -230,15 +131,20 @@ class UserEmbeddingNet(nn.Module):
         return: [B, embed_dim]
         """
         with torch.no_grad():
-            pose_feat = self.motionbert(pose_est)
+            pose_feat = self.motionbert(pose_est)  # [B, F, J, 512]
             video_feat = self.video_prism(video)
-        pose_feat = self.mean_pool_mlp(pose_feat)
-        video_feat = self.video_mean_pool_mlp(video_feat)
+            
+        # pose_feat = self.mean_pool_mlp(pose_feat)
+        # video_feat = self.video_mean_pool_mlp(video_feat)
 
         print(f"Pose feature shape: {pose_feat.shape}")
         print(f"Video feature shape: {video_feat.shape}")
+        
+        pose_feat  = pose_feat.mean(dim=2)        # [B, F, 512]
+        
+        embeddings = self.fusion(pose_feat, video_feat)  # [B, 256]
 
-        embeddings = torch.cat([pose_feat, video_feat], dim=-1)
+        # embeddings = torch.cat([pose_feat, video_feat], dim=-1)
 
         print(f"User embedding shape: {embeddings.shape}")
 
