@@ -5,7 +5,7 @@ from typing import Optional
 from torch import Tensor
 
 from src.backbone import MotionBERTBackbone, VideoPrismBackbone
-from src import RotaryEmbedding
+from src.rotary_embedding import RotaryEmbedding
 
 class CrossAttentionFusion(nn.Module):
     def __init__(
