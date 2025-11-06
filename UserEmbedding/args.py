@@ -15,7 +15,7 @@ def parse_train_opt():
         help="Dataset backup path",
     )
 
-    parser.add_argument("--batch_size", type=int, default=16, help="batch size")
+    parser.add_argument("--batch_size", type=int, default=8, help="batch size")
     parser.add_argument("--epochs", type=int, default=2000)
     parser.add_argument(
         "--force_reload", action="store_true", help="force reloads the datasets"
