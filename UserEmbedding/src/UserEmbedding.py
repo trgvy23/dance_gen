@@ -98,7 +98,7 @@ class UserEmbedding:
             args.processed_data_dir, f"test_tensor_dataset.pkl"
         )
         if (
-            getattr(args, "cache_data", False) and
+            getattr(args, "cache_data", False)
             and os.path.isfile(train_tensor_dataset_path)
             and os.path.isfile(test_tensor_dataset_path)
         ):
