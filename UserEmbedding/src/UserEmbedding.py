@@ -24,7 +24,7 @@ from pytorch_metric_learning.samplers import MPerClassSampler
 
 from data.dataset import DanceDataset
 from src.models import UserEmbeddingNet
-from src.backbone import MotionBERTBackbone, VideoPrismBackbone
+from src.backbone import MotionBERTBackbone
 
 
 def build_hierarchical_triplets(y_d, y_g):
@@ -82,9 +82,8 @@ class UserEmbedding:
             )
 
         self.motionbert = MotionBERTBackbone()
-        self.video_prism = VideoPrismBackbone(use_bfloat16=True)
         
-        self.user_embedding_net = UserEmbeddingNet(self.motionbert, self.video_prism)
+        self.user_embedding_net = UserEmbeddingNet(self.motionbert)
 
         self.optimizer = optim.Adam(
             self.user_embedding_net.parameters(), lr=0.0005, weight_decay=0.01
@@ -211,10 +210,10 @@ class UserEmbedding:
 
         self.accelerator.wait_for_everyone()
 
-        for batch_idx, (video, pose_est, gerne_label, dancer_label) in enumerate(
+        for batch_idx, (video_embedding, pose_est, gerne_label, dancer_label) in enumerate(
             load_loop(train_data_loader)
         ):
-            video = video.to(self.accelerator.device)
+            video_embedding = video_embedding.to(self.accelerator.device)
             pose_est = pose_est.to(self.accelerator.device)
             gerne_label = gerne_label.to(self.accelerator.device)
             dancer_label = dancer_label.to(self.accelerator.device)
@@ -223,7 +222,7 @@ class UserEmbedding:
             # TODO: add many arguments and inputs
             with self.accelerator.autocast():
                 embeddings = self.user_embedding_net(
-                    video, pose_est
+                    video_embedding, pose_est
                 )  # Compute embeddings using the model
 
             triplets_d = self.dancer_miner(embeddings, dancer_label)

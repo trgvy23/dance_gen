@@ -134,28 +134,28 @@ class DanceDataset(Dataset):
         )
 
         self.data = {
-            "videos": data["videos"],
+            "video_embeddings": data["video_embeddings"],
             "pose_estimations": data["pose_estimations"],
             "gerne_labels": data["gerne_labels"],
             "dancer_labels": data["dancer_labels"],
         }
 
-        assert len(data["videos"]) == len(data["pose_estimations"])
-        self.length = len(data["videos"])
+        assert len(data["video_embeddings"]) == len(data["pose_estimations"])
+        self.length = len(data["video_embeddings"])
 
     def __len__(self):
         return self.length
 
     def __getitem__(self, idx):
         return (
-            self.data["videos"][idx],
+            self.data["video_embeddings"][idx],
             self.data["pose_estimations"][idx],
             self.data["gerne_labels"][idx],
             self.data["dancer_labels"][idx],
         )
 
-    def read_video(self, video_path: str):
-        return np.load(video_path, allow_pickle=True)  # (T, H, W, 3)
+    def read_video(self, video_embedding_path: str):
+        return np.load(video_embedding_path, allow_pickle=True)  # (T, H, W, 3)
 
     def read_pose_estimation(self, json_path, vid_size=None):
         with open(json_path, "r") as read_file:
@@ -204,40 +204,40 @@ class DanceDataset(Dataset):
         #   |    |- videos
         #   |    |- pose_estimation
 
-        video_path = os.path.join(split_root, "video_sliced")
+        video_embedding_path = os.path.join(split_root, "video_embedding_sliced")
         pose_estimation_path = os.path.join(split_root, "pose_estimation_sliced")
 
         # sort motions and sounds
-        videos = sorted(glob.glob(os.path.join(video_path, "*.npy")))
+        video_embeddings = sorted(glob.glob(os.path.join(video_embedding_path, "*.npy")))
         pose_estimations = sorted(
             glob.glob(os.path.join(pose_estimation_path, "*.json"))
         )
 
-        assert len(videos) == len(
+        assert len(video_embeddings) == len(
             pose_estimations
-        ), f"Count mismatch: videos={len(videos)} pose_estimations={len(pose_estimations)}"
+        ), f"Count mismatch: videos={len(video_embeddings)} pose_estimations={len(pose_estimations)}"
 
-        all_videos, all_pose_estimations, all_gerne_labels, all_dancer_labels = (
+        all_video_embeddings, all_pose_estimations, all_gerne_labels, all_dancer_labels = (
             [],
             [],
             [],
             [],
         )
 
-        for video_filename, pose_est_filename in tqdm(
-            zip(videos, pose_estimations), total=len(videos), desc="Loading data"
+        for video_embedding_filename, pose_est_filename in tqdm(
+            zip(video_embeddings, pose_estimations), total=len(video_embeddings), desc="Loading data"
         ):
-            v_name = os.path.splitext(os.path.basename(video_filename))[0]
+            v_name = os.path.splitext(os.path.basename(video_embedding_filename))[0]
             p_name = os.path.splitext(os.path.basename(pose_est_filename))[0]
             assert (
                 v_name == p_name
-            ), f"Name mismatch: {video_filename} vs {pose_est_filename}"
+            ), f"Name mismatch: {video_embedding_filename} vs {pose_est_filename}"
 
-            video = self.read_video(video_filename)
-            all_videos.append(video)
+            video_embedding = self.read_video(video_embedding_filename)
+            all_video_embeddings.append(video_embedding)
 
-            video_height = video.shape[1]
-            video_width = video.shape[2]
+            video_height = video_embedding.shape[1]
+            video_width = video_embedding.shape[2]
 
             pose_est = self.read_pose_estimation(
                 pose_est_filename, vid_size=(video_width, video_height)
@@ -248,13 +248,13 @@ class DanceDataset(Dataset):
             all_gerne_labels.append(genre_id)
             all_dancer_labels.append(dancer_id)
 
-        all_videos = np.array(all_videos)  # N x T x H x W x 3
+        all_video_embeddings = np.array(all_video_embeddings)  # N x T x H x W x 3
         all_pose_estimations = np.array(all_pose_estimations)  # N x T x 17 x 3
         all_gerne_labels = np.array(all_gerne_labels)  # N
         all_dancer_labels = np.array(all_dancer_labels)  # N
 
         data = {
-            "videos": all_videos,
+            "video_embeddings": all_video_embeddings,
             "pose_estimations": all_pose_estimations,
             "gerne_labels": all_gerne_labels,
             "dancer_labels": all_dancer_labels,

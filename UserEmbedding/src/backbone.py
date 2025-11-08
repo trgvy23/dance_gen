@@ -54,30 +54,3 @@ class MotionBERTBackbone(nn.Module):
         print('MotionBERTBackbone output shape:', out.shape)
         
         return out
-    
-class VideoPrismBackbone(nn.Module):
-    def __init__(self, model_name = 'videoprism_public_v1_base', use_bfloat16 = False):
-        super(VideoPrismBackbone, self).__init__()
-        
-        self.fprop_dtype = jnp.bfloat16 if use_bfloat16 else None
-        self.flax_model = vp.get_model(model_name, fprop_dtype=self.fprop_dtype)
-        self.loaded_state = vp.load_pretrained_weights(model_name)
-        
-    def forward(self, x, train=False):
-        """
-        x: [B, T, input_dim]
-        return: [B, T, embed_dim]
-        """
-        device = x.device
-        if isinstance(x, torch.Tensor):
-            x = x.detach().cpu().numpy()
-        x = jnp.asarray(x, dtype=self.fprop_dtype or jnp.float32)
-            
-        print(f'Input shape: {x.shape} [type: {x.dtype}]')
-        
-        embeddings, _ = self.flax_model.apply(self.loaded_state, x, train=train)
-        print(f'Encoded embedding shape: {embeddings.shape} [type: {embeddings.dtype}]')
-        embeddings = np.asarray(embeddings, dtype=np.float32)
-        embeddings = torch.from_numpy(embeddings).to(device)
-
-        return embeddings

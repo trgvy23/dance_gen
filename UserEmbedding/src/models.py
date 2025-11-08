@@ -4,7 +4,7 @@ import torch.nn.functional as F
 from typing import Optional
 from torch import Tensor
 
-from src.backbone import MotionBERTBackbone, VideoPrismBackbone
+from src.backbone import MotionBERTBackbone
 from src.rotary_embedding import RotaryEmbedding
 
 class CrossAttentionFusion(nn.Module):
@@ -98,10 +98,9 @@ class VideoMeanPoolMLP(nn.Module):
 
 
 class UserEmbeddingNet(nn.Module):
-    def __init__(self, motionbert: MotionBERTBackbone, video_prism: VideoPrismBackbone):
+    def __init__(self, motionbert: MotionBERTBackbone):
         super(UserEmbeddingNet, self).__init__()
         self.motionbert = motionbert
-        self.video_prism = video_prism
 
         # for p in self.motionbert.parameters():
         #     p.requires_grad = False
@@ -125,14 +124,13 @@ class UserEmbeddingNet(nn.Module):
             use_rotary=True,
         )
 
-    def forward(self, video, pose_est):
+    def forward(self, video_feat, pose_est):
         """
         x: [B, T, input_dim]
         return: [B, embed_dim]
         """
         with torch.no_grad():
             pose_feat = self.motionbert(pose_est)  # [B, F, J, 512]
-            video_feat = self.video_prism(video)
             
         # pose_feat = self.mean_pool_mlp(pose_feat)
         # video_feat = self.video_mean_pool_mlp(video_feat)
@@ -147,5 +145,6 @@ class UserEmbeddingNet(nn.Module):
         # embeddings = torch.cat([pose_feat, video_feat], dim=-1)
 
         print(f"User embedding shape: {embeddings.shape}")
+        embeddings = F.normalize(embeddings, p=2, dim=1)
 
         return embeddings

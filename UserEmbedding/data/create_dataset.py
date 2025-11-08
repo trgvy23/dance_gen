@@ -35,9 +35,9 @@ def create_dataset(opt):
 
     # slice motions/music into sliding windows to create training dataset
     print("Slicing train data")
-    slice_dataset(f"train/video", f"train/pose_estimation", width=opt.width, height=opt.height)
+    slice_dataset(f"train/video", f"train/pose_estimation")
     print("Slicing test data")
-    slice_dataset(f"test/video", f"test/pose_estimation", width=opt.width, height=opt.height)
+    slice_dataset(f"test/video", f"test/pose_estimation")
 
 
 def split_data(dataset_path):
@@ -82,13 +82,13 @@ def parse_opt():
         default="edge_aistpp",
         help="folder containing motions and music",
     )
-    # 680 480
-    parser.add_argument(
-        "--width", type=int, default=288, help="width to resize videos to"
-    )
-    parser.add_argument(
-        "--height", type=int, default=288, help="height to resize videos to"
-    )
+    # # 680 480
+    # parser.add_argument(
+    #     "--width", type=int, default=288, help="width to resize videos to"
+    # )
+    # parser.add_argument(
+    #     "--height", type=int, default=288, help="height to resize videos to"
+    # )
     parser.add_argument(
         "--length_frames",
         type=int,

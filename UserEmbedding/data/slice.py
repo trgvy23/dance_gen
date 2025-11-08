@@ -6,11 +6,17 @@ import glob
 import numpy as np
 from tqdm import tqdm
 from typing import Dict, List, Tuple
+import torch
 
 from decord import VideoReader, cpu
+import jax
+import jax.numpy as jnp
+from videoprism import models as vp
 
 ORIGINAL_FPS = 60  # original fps of videos in dataset
-
+VIDEO_WIDTH = 288
+VIDEO_HEIGHT = 288
+VIDEOPRISM_MODEL_NAME = 'videoprism_public_v1_base'
 
 def ensure_dir(p: str) -> None:
     os.makedirs(p, exist_ok=True)
@@ -21,13 +27,16 @@ def slice_video(
     length_frames: int,
     step: int,
     output_dir: str,
-    width: int,
-    height: int,
+    videoprism_model,
+    use_bfloat16: bool = True,
 ) -> int:
-    if width is not None and height is not None:
-        vr = VideoReader(video_path, width=width, height=height)  # (T, H, W, 3)
-    else:
-        vr = VideoReader(video_path)  # (T, H, W, 3)
+    ensure_dir(output_dir)
+    
+    fprop_dtype = jnp.bfloat16 if use_bfloat16 else None
+    flax_model = vp.get_model(videoprism_model, fprop_dtype=fprop_dtype)
+    loaded_state = vp.load_pretrained_weights(videoprism_model)
+    
+    vr = VideoReader(video_path, width=VIDEO_WIDTH, height=VIDEO_HEIGHT, ctx=cpu(0))
     T = len(vr)
 
     start = 0
@@ -38,7 +47,17 @@ def slice_video(
     while start <= T - step * length_frames:
         inds = list(range(start, start + step * length_frames, step))
         batch = vr.get_batch(inds).asnumpy()
+        batch = torch.from_numpy(batch).unsqueeze(0)
+        
+        if isinstance(batch, torch.Tensor):
+            batch = batch.detach().cpu().numpy()
+        batch = jnp.asarray(batch, dtype=fprop_dtype or jnp.float32)
+        
+        embeddings, _ = flax_model.apply(loaded_state, batch, train=False)
+        embeddings = np.asarray(embeddings, dtype=np.float32)
+        
         np.save(os.path.join(output_dir, f"{basename}_slice{idx}.npy"), batch)
+        
         start += length_frames
         idx += 1
 
@@ -74,14 +93,12 @@ def slice_dataset(
     video_dir,
     pose_estimation_dir,
     length_frames: int = 243,
-    width: int = None,
-    height: int = None,
     fps: int = None,
 ):
     """
     Slices each (video, pose) pair into aligned 243-frame windows.
     """
-    vid_out = video_dir + "_sliced"
+    vid_out = video_dir + "_embedding_sliced"
     pose_est_out = pose_estimation_dir + "_sliced"
 
     ensure_dir(vid_out)
@@ -106,8 +123,7 @@ def slice_dataset(
             length_frames=length_frames,
             step=data_stride,
             output_dir=vid_out,
-            width=width,
-            height=height,
+            videoprism_model=VIDEOPRISM_MODEL_NAME,
         )
         pose_slices = slice_motion_estimation(
             pose_path=pose_path,
