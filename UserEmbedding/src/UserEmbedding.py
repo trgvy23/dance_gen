@@ -415,9 +415,9 @@ class UserEmbedding:
         #     drop_last=True,
         # )
 
-        self.user_embedding_net, self.optimizer, train_data_loader, test_data_loader = (
+        self.user_embedding_net, self.optimizer, train_data_loader = (
             self.accelerator.prepare(
-                self.user_embedding_net, self.optimizer, train_data_loader, test_data_loader
+                self.user_embedding_net, self.optimizer, train_data_loader
             )
         )
 
