@@ -236,11 +236,11 @@ class DanceDataset(Dataset):
             video_embedding = self.read_video(video_embedding_filename)
             all_video_embeddings.append(video_embedding)
 
-            video_height = video_embedding.shape[1]
-            video_width = video_embedding.shape[2]
+            # video_height = video_embedding.shape[1]
+            # video_width = video_embedding.shape[2]
 
             pose_est = self.read_pose_estimation(
-                pose_est_filename, vid_size=(video_width, video_height)
+                pose_est_filename, vid_size=None
             )
             all_pose_estimations.append(pose_est)
 
