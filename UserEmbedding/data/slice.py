@@ -47,16 +47,16 @@ def slice_video(
     while start <= T - step * length_frames:
         inds = list(range(start, start + step * length_frames, step))
         batch = vr.get_batch(inds).asnumpy()
-        batch = torch.from_numpy(batch).unsqueeze(0)
-        
-        if isinstance(batch, torch.Tensor):
-            batch = batch.detach().cpu().numpy()
+        batch = torch.from_numpy(batch).unsqueeze(0).numpy()
         batch = jnp.asarray(batch, dtype=fprop_dtype or jnp.float32)
         
         embeddings, _ = flax_model.apply(loaded_state, batch, train=False)
         embeddings = np.asarray(embeddings, dtype=np.float32)
         
-        np.save(os.path.join(output_dir, f"{basename}_slice{idx}.npy"), batch)
+        print(f"Embeeingging shape for slice {idx} of {basename}: {embeddings.shape}")
+        print(embeddings)
+        
+        np.save(os.path.join(output_dir, f"{basename}_slice{idx}.npy"), embeddings)
         
         start += length_frames
         idx += 1
