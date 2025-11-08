@@ -379,7 +379,7 @@ class UserEmbedding:
         for k, v in scalars.items():
             writer.add_scalar(prefix + "/" + k, v, step)
 
-    def train(self, args):
+    def train(self):
         # =========== Prepare Dataloaders ==========
         num_cpus = multiprocessing.cpu_count()
 
@@ -397,7 +397,7 @@ class UserEmbedding:
         )
         train_data_loader = DataLoader(
             self.train_dataset,
-            batch_size=args.batch_size,
+            batch_size=self.hparams.Train.batch_size,
             sampler=sampler,
             num_workers=min(int(num_cpus * 0.75), 32),
             pin_memory=False,
