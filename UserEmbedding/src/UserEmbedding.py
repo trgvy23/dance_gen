@@ -354,7 +354,7 @@ class UserEmbedding:
                         
                 # Evaluate
                 if self.global_step % self.eval_every == self.eval_every - 1:
-                    run_evaluation()
+                    self.run_evaluation()
 
                     writer.add_scalar('train/epoch',
                                     self.global_step / len(train_data_loader),
