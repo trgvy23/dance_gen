@@ -11,6 +11,8 @@ from functools import partial
 import copy
 import random
 
+from common.config import JsonConfig
+
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
