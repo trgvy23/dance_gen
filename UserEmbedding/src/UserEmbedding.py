@@ -23,10 +23,10 @@ from torch.utils.tensorboard import SummaryWriter
 
 from accelerate import Accelerator, DistributedDataParallelKwargs
 from accelerate.state import AcceleratorState
+
 from pytorch_metric_learning import distances, losses, miners, reducers, testers
 from pytorch_metric_learning.samplers import MPerClassSampler
 from pytorch_metric_learning.utils import accuracy_calculator
-
 
 from data.dataset import DanceDataset
 from src.models import UserEmbeddingNet
@@ -145,7 +145,7 @@ class UserEmbedding:
         if len(self.hparams.Model.checkpoint) > 0:
             print(f"loading weights from {self.hparams.Model.checkpoint}")
             ckp = torch.load(
-                join(self.hparams.Train.log_dir, self.hparams.Model.checkpoint),
+                os.join(self.hparams.Train.log_dir, self.hparams.Model.checkpoint),
                 map_location=self.accelerator.device,
             )
             self.user_embedding_net.load_state_dict(ckp["model"], strict=False)
@@ -578,7 +578,7 @@ class UserEmbedding:
                 if self.global_step % self.eval_every == self.eval_every - 1:
                     self.run_evaluation()
 
-                    writer.add_scalar(
+                    self.writer.add_scalar(
                         "train/epoch",
                         self.global_step / len(train_data_loader),
                         self.global_step,
