@@ -96,9 +96,22 @@ class VideoMeanPoolMLP(nn.Module):
         x = self.mlp(x)  # [B, d_out]  (256)
         return x
 
+class MLP(nn.Module):
+    """Very simple multi-layer perceptron (also called FFN)"""
+    def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
+        super().__init__()
+        self.num_layers = num_layers
+        h = [hidden_dim] * (num_layers - 1)
+        self.layers = nn.ModuleList(
+            nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
 
+    def forward(self, x):
+        for i, layer in enumerate(self.layers):
+            x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
+        return x
+    
 class UserEmbeddingNet(nn.Module):
-    def __init__(self, motionbert: MotionBERTBackbone):
+    def __init__(self, motionbert: MotionBERTBackbone, num_dancer_class, num_gerne_class):
         super(UserEmbeddingNet, self).__init__()
         self.motionbert = motionbert
 
@@ -113,6 +126,9 @@ class UserEmbeddingNet(nn.Module):
         # self.video_mean_pool_mlp = VideoMeanPoolMLP(
         #     d_in=768, d_hidden=512, d_out=256, p_drop=0.1
         # )
+        
+        self.dancer_predictor = MLP(256, 512, num_dancer_class, 4)
+        self.gerne_predictor = MLP(256, 512, num_gerne_class, 4)
         
         self.fusion = CrossAttentionFusion(
             d_pose=512,
@@ -142,5 +158,8 @@ class UserEmbeddingNet(nn.Module):
         
         embeddings = self.fusion(pose_feat, video_feat)  # [B, 256]
         embeddings = F.normalize(embeddings, p=2, dim=1)
+        
+        dancer_labels = self.dancer_predictor(embeddings)  # [B, ]
+        gerne_labels = self.gerne_predictor(embeddings)    # [B, ]
 
-        return embeddings
+        return embeddings, dancer_labels, gerne_labels

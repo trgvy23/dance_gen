@@ -153,6 +153,12 @@ class DanceDataset(Dataset):
             self.data["gerne_labels"][idx],
             self.data["dancer_labels"][idx],
         )
+        
+    def get_dancer_num(self):
+        return len(self.dancer2id)
+    
+    def get_gerne_num(self):
+        return len(self.genre2id)
 
     def read_video(self, video_embedding_path: str):
         return np.load(video_embedding_path, allow_pickle=True)  # (T, H, W, 3)

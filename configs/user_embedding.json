@@ -1,8 +1,8 @@
 {
     "Train":  {
-        "epochs":  20000,
+        "epochs":  2000,
         "log_dir": "logs/user_embedding",
-        "batch_size":  64,
+        "batch_size":  32,
         "adam_lr": 0.0001,
 		"adam_betas": [
 			0.9,

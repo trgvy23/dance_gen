@@ -23,6 +23,8 @@ from accelerate import Accelerator, DistributedDataParallelKwargs
 from accelerate.state import AcceleratorState
 from pytorch_metric_learning import distances, losses, miners, reducers, testers
 from pytorch_metric_learning.samplers import MPerClassSampler
+from pytorch_metric_learning.utils import accuracy_calculator
+
 
 from data.dataset import DanceDataset
 from src.models import UserEmbeddingNet
@@ -85,9 +87,44 @@ class UserEmbedding:
         #         weights_only=False,
         #     )
 
+        # DATASETS
+        
+        ### LOAD DATASET ###
+        print("Loading DanceDataset...")
+        train_tensor_dataset_path = os.path.join(
+            args.processed_data_dir, f"train_tensor_dataset.pkl"
+        )
+        test_tensor_dataset_path = os.path.join(
+            args.processed_data_dir, f"test_tensor_dataset.pkl"
+        )
+        if (
+            getattr(args, "cache_data", False) and
+            and os.path.isfile(train_tensor_dataset_path)
+            and os.path.isfile(test_tensor_dataset_path)
+        ):
+            self.train_dataset = pickle.load(open(train_tensor_dataset_path, "rb"))
+            self.test_dataset = pickle.load(open(test_tensor_dataset_path, "rb"))
+        else:
+            
+        self.train_dataset = DanceDataset(
+            data_path=args.data_path,
+            backup_path=args.processed_data_dir,
+            train=True,
+            force_reload=getattr(args, "force_reload", False),
+            cache_data=getattr(args, "cache_data", False),
+        )
+        
+        self.test_dataset = DanceDataset(
+            data_path=args.data_path,
+            backup_path=args.processed_data_dir,
+            train=False,
+            force_reload=getattr(args, "force_reload", False),
+            cache_data=getattr(args, "cache_data", False),
+        )
+        
         self.motionbert = MotionBERTBackbone()
         #TODO: add more arguments for model: hidden size, emb size, etc
-        self.user_embedding_net = UserEmbeddingNet(self.motionbert)
+        self.user_embedding_net = UserEmbeddingNet(self.motionbert, num_dancer_class=self.train_dataset.get_dancer_num(), num_gerne_class=self.train_dataset.get_gerne_num())
 
         self.optimizer = optim.AdamW(
             self.user_embedding_net.parameters(), weight_decay=0.01
@@ -169,7 +206,8 @@ class UserEmbedding:
             
         ### OTHERS ###
         self.log_dir = self.hparams.Train.log_dir
-        self.epochs = getattr(args, "epochs", 2000)
+        self.epochs = self.hparams.Train.epochs
+        self.batch_size = self.hparams.Train.batch_size
         
         if args.eval_only:
             self.run_evaluation()
@@ -185,13 +223,155 @@ class UserEmbedding:
             # Write configuration file to the log dir
             self.hparams.dump(log_dir, 'config.json')
             
+            
             self.print_every = self.hparams.Train.print_every
             self.max_iters = self.hparams.Train.max_iters
             self.save_every = self.hparams.Train.checkpoint_every
             self.eval_every = self.hparams.Train.evaluate_every
 
+    def _extract_embeddings(self, data_loader):
+        self.user_embedding_net.eval()
+        all_embs = []
+        all_dancer_labels = []
+        all_genre_labels = []
+
+        with torch.no_grad():
+            for video_embedding, pose_est, genre_label, dancer_label in data_loader:
+                video_embedding = video_embedding.to(self.accelerator.device)
+                pose_est = pose_est.to(self.accelerator.device)
+                genre_label = genre_label.to(self.accelerator.device)
+                dancer_label = dancer_label.to(self.accelerator.device)
+
+                with self.accelerator.autocast():
+                    embs, _, _ = self.user_embedding_net(video_embedding, pose_est)
+                    embs = F.normalize(embs, p=2, dim=1)  # for cosine
+
+                all_embs.append(embs)
+                all_dancer_labels.append(dancer_label)
+                all_genre_labels.append(genre_label)
+
+        # concat within each process
+        all_embs = torch.cat(all_embs, dim=0)
+        all_dancer_labels = torch.cat(all_dancer_labels, dim=0)
+        all_genre_labels = torch.cat(all_genre_labels, dim=0)
+
+        # gather across processes
+        all_embs = self.accelerator.gather_for_metrics(all_embs)
+        all_dancer_labels = self.accelerator.gather_for_metrics(all_dancer_labels)
+        all_genre_labels = self.accelerator.gather_for_metrics(all_genre_labels)
+
+        return all_embs, all_dancer_labels, all_genre_labels
+
+    
     def run_evaluation(self):
-        pass
+        
+        num_cpus = multiprocessing.cpu_count()
+
+        # make sure datasets already exist (e.g. built in train() or __init__)
+        train_data_loader = DataLoader(
+            self.train_dataset,
+            batch_size=self.hparams.Train.batch_size,
+            shuffle=False,
+            num_workers=min(int(num_cpus * 0.75), 32),
+            pin_memory=False,
+            drop_last=False,
+        )
+        test_data_loader = DataLoader(
+            self.test_dataset,
+            batch_size=self.hparams.Train.batch_size,
+            shuffle=False,
+            num_workers=min(int(num_cpus * 0.75), 32),
+            pin_memory=False,
+            drop_last=False,
+        )
+
+        # put loaders under Accelerator if you want
+        train_data_loader, test_data_loader = self.accelerator.prepare(
+            train_data_loader, test_data_loader
+        )
+
+        # extract embeddings
+        train_embs, train_dancer, train_genre = self._extract_embeddings(train_data_loader)
+        test_embs, test_dancer, test_genre = self._extract_embeddings(test_data_loader)
+
+        if not self.accelerator.is_main_process:
+            # only main process prints/logs
+            self.user_embedding_net.train()
+            return
+
+        # to numpy
+        train_embs_np = train_embs.cpu().numpy()
+        test_embs_np = test_embs.cpu().numpy()
+        train_dancer_np = train_dancer.cpu().numpy()
+        test_dancer_np = test_dancer.cpu().numpy()
+        train_genre_np = train_genre.cpu().numpy()
+        test_genre_np = test_genre.cpu().numpy()
+
+        acc_calc = accuracy_calculator.AccuracyCalculator(
+            include=("precision_at_1", "r_precision", "mean_average_precision_at_r"),
+            device=self.accelerator.device,
+        )
+
+        # DANCER RETRIEVAL: query = test, reference = train
+        dancer_acc = acc_calc.get_accuracy(
+            query_embeddings=test_embs_np,
+            query_labels=test_dancer_np,
+            reference_embeddings=train_embs_np,
+            reference_labels=train_dancer_np,
+            embeddings_come_from_same_source=False,
+        )
+
+        # GENRE RETRIEVAL: query = test, reference = train
+        genre_acc = acc_calc.get_accuracy(
+            query_embeddings=test_embs_np,
+            query_labels=test_genre_np,
+            reference_embeddings=train_embs_np,
+            reference_labels=train_genre_np,
+            embeddings_come_from_same_source=False,
+        )
+
+        print(
+            "[Eval] DANCER  | p@1: {:.4f}, R-prec: {:.4f}, mAP@R: {:.4f}".format(
+                dancer_acc["precision_at_1"],
+                dancer_acc["r_precision"],
+                dancer_acc["mean_average_precision_at_r"],
+            )
+        )
+        print(
+            "[Eval] GENRE   | p@1: {:.4f}, R-prec: {:.4f}, mAP@R: {:.4f}".format(
+                genre_acc["precision_at_1"],
+                genre_acc["r_precision"],
+                genre_acc["mean_average_precision_at_r"],
+            )
+        )
+
+        # TensorBoard logging
+        if hasattr(self, "writer"):
+            self.writer.add_scalar(
+                "eval/dancer_p_at_1", dancer_acc["precision_at_1"], self.global_step
+            )
+            self.writer.add_scalar(
+                "eval/dancer_r_precision", dancer_acc["r_precision"], self.global_step
+            )
+            self.writer.add_scalar(
+                "eval/dancer_map_at_r",
+                dancer_acc["mean_average_precision_at_r"],
+                self.global_step,
+            )
+
+            self.writer.add_scalar(
+                "eval/genre_p_at_1", genre_acc["precision_at_1"], self.global_step
+            )
+            self.writer.add_scalar(
+                "eval/genre_r_precision", genre_acc["r_precision"], self.global_step
+            )
+            self.writer.add_scalar(
+                "eval/genre_map_at_r",
+                genre_acc["mean_average_precision_at_r"],
+                self.global_step,
+            )
+
+        self.user_embedding_net.train()
     
     def prepare(self, objects):
         return self.accelerator.prepare(*objects)
@@ -201,23 +381,15 @@ class UserEmbedding:
             writer.add_scalar(prefix + "/" + k, v, step)
 
     def train(self, args):
-        print("Loading DanceDataset...")
-        train_dataset = DanceDataset(
-            data_path=args.data_path,
-            backup_path=args.processed_data_dir,
-            train=True,
-            force_reload=getattr(args, "force_reload", False),
-            cache_data=getattr(args, "cache_data", False),
-        )
-
+        # =========== Prepare Dataloaders ==========
         num_cpus = multiprocessing.cpu_count()
 
         print("Creating data loaders...")
 
         all_dancer_labels = torch.tensor(
             [
-                train_dataset[i][3]  # index 3 = dancer_label in your tuple
-                for i in range(len(train_dataset))
+                self.train_dataset[i][3]  # index 3 = dancer_label in your tuple
+                for i in range(len(self.train_dataset))
             ]
         )
 
@@ -225,7 +397,7 @@ class UserEmbedding:
             labels=all_dancer_labels, m=4, length_before_new_iter=len(all_dancer_labels)
         )
         train_data_loader = DataLoader(
-            train_dataset,
+            self.train_dataset,
             batch_size=args.batch_size,
             sampler=sampler,
             num_workers=min(int(num_cpus * 0.75), 32),
@@ -242,9 +414,9 @@ class UserEmbedding:
         #     drop_last=True,
         # )
 
-        self.user_embedding_net, self.optimizer, train_data_loader = (
+        self.user_embedding_net, self.optimizer, train_data_loader, test_data_loader = (
             self.accelerator.prepare(
-                self.user_embedding_net, self.optimizer, train_data_loader
+                self.user_embedding_net, self.optimizer, train_data_loader, test_data_loader
             )
         )
 
@@ -271,31 +443,55 @@ class UserEmbedding:
 
                 # TODO: add many arguments and inputs
                 with self.accelerator.autocast():
-                    embeddings = self.user_embedding_net(
+                    embeddings, _, _ = self.user_embedding_net(
                         video_embedding, pose_est
                     )  # Compute embeddings using the model
 
                 triplets_d = self.dancer_miner(embeddings, dancer_label)
                 triplets_g = self.genre_miner(embeddings, gerne_label)
 
-                loss_dancer = self.dancer_loss_func(
-                    embeddings, dancer_label, indices_tuple=triplets_d
-                )
-                loss_gerne = self.genre_loss_func(
-                    embeddings, gerne_label, indices_tuple=triplets_g
-                )
-                loss = self.lambda_dancer * loss_dancer + self.lambda_genre * loss_gerne
+                # loss_dancer = self.dancer_loss_func(
+                #     embeddings, dancer_label, indices_tuple=triplets_d
+                # )
+                # loss_gerne = self.genre_loss_func(
+                #     embeddings, gerne_label, indices_tuple=triplets_g
+                # )
+                # loss = self.lambda_dancer * loss_dancer + self.lambda_genre * loss_gerne
 
+                # if self.use_triplet_reg:
+                #     T1, T2 = build_hierarchical_triplets(
+                #         dancer_label, gerne_label
+                #     )  # see helper below
+                #     L1 = self.triplet_reg(
+                #         embeddings, dancer_label, indices_tuple=T1
+                #     )  # same-dancer vs same-genre-diff-dancer
+                #     L2 = self.triplet_reg(
+                #         embeddings, gerne_label, indices_tuple=T2
+                #     )  # same-genre-diff-dancer vs diff-genre
+                #     loss = loss + self.mu_triplet * (L1 + 0.5 * L2)
+                
+                # classification losses
+                loss_dancer_ce = F.cross_entropy(dancer_logits, dancer_label)
+                loss_genre_ce = F.cross_entropy(genre_logits, gerne_label)
+
+                # combine (example weights)
+                lambda_d_ml   = self.lambda_dancer
+                lambda_g_ml   = self.lambda_genre
+                lambda_d_ce   = getattr(self, "lambda_d_ce", 1.0)
+                lambda_g_ce   = getattr(self, "lambda_g_ce", 1.0)
+
+                loss = (
+                    lambda_d_ml * loss_dancer_ml
+                    + lambda_g_ml * loss_genre_ml
+                    + lambda_d_ce * loss_dancer_ce
+                    + lambda_g_ce * loss_genre_ce
+                )
+
+                # optional hierarchical triplet regularizer
                 if self.use_triplet_reg:
-                    T1, T2 = build_hierarchical_triplets(
-                        dancer_label, gerne_label
-                    )  # see helper below
-                    L1 = self.triplet_reg(
-                        embeddings, dancer_label, indices_tuple=T1
-                    )  # same-dancer vs same-genre-diff-dancer
-                    L2 = self.triplet_reg(
-                        embeddings, gerne_label, indices_tuple=T2
-                    )  # same-genre-diff-dancer vs diff-genre
+                    T1, T2 = build_hierarchical_triplets(dancer_label, gerne_label)
+                    L1 = self.triplet_reg(embeddings, dancer_label, indices_tuple=T1)
+                    L2 = self.triplet_reg(embeddings, gerne_label, indices_tuple=T2)
                     loss = loss + self.mu_triplet * (L1 + 0.5 * L2)
 
                 self.optimizer.zero_grad()
