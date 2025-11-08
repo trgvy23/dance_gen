@@ -132,6 +132,8 @@ class UserEmbeddingNet(nn.Module):
         with torch.no_grad():
             pose_feat = self.motionbert(pose_est)  # [B, 243, 17, 512]
             
+        #TODO: projection layer for each input
+            
         # pose_feat = self.mean_pool_mlp(pose_feat)
         # video_feat = self.video_mean_pool_mlp(video_feat)
         

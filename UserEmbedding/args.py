@@ -3,6 +3,7 @@ import argparse
 
 def parse_train_opt():
     parser = argparse.ArgumentParser()
+    parser.add_argument('--hparams', default='/raid/ltnghia02/vyttt/dance_gen/configs/user_embedding.json', type=str,help='hyper parameters config file path')
     parser.add_argument("--project", default="runs/train", help="project/name")
     parser.add_argument(
         "--exp_name", default="user_embedding", help="save to project/name"
@@ -17,6 +18,9 @@ def parse_train_opt():
 
     parser.add_argument("--batch_size", type=int, default=8, help="batch size")
     parser.add_argument("--epochs", type=int, default=2000)
+    parser.add_argument(
+        "--eval_only", action="store_true", help="evaluation only"
+    )
     parser.add_argument(
         "--force_reload", action="store_true", help="force reloads the datasets"
     )

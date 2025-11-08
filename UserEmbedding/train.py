@@ -3,7 +3,7 @@ from src.UserEmbedding import UserEmbedding
 
 
 def train(args):
-    model = UserEmbedding(args.checkpoint)
+    model = UserEmbedding()
     model.train(args)
 
 
