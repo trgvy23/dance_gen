@@ -53,9 +53,6 @@ def slice_video(
         embeddings, _ = flax_model.apply(loaded_state, batch, train=False)
         embeddings = np.asarray(embeddings, dtype=np.float32)
         
-        print(f"Embeeingging shape for slice {idx} of {basename}: {embeddings.shape}")
-        print(embeddings)
-        
         np.save(os.path.join(output_dir, f"{basename}_slice{idx}.npy"), embeddings)
         
         start += length_frames
