@@ -130,21 +130,15 @@ class UserEmbeddingNet(nn.Module):
         return: [B, embed_dim]
         """
         with torch.no_grad():
-            pose_feat = self.motionbert(pose_est)  # [B, F, J, 512]
+            pose_feat = self.motionbert(pose_est)  # [B, 243, 17, 512]
             
         # pose_feat = self.mean_pool_mlp(pose_feat)
         # video_feat = self.video_mean_pool_mlp(video_feat)
-
-        print(f"Pose feature shape: {pose_feat.shape}")
-        print(f"Video feature shape: {video_feat.shape}")
         
-        pose_feat  = pose_feat.mean(dim=2)        # [B, F, 512]
+        pose_feat  = pose_feat.mean(dim=2)        # [B, 243, 512]
+        # video_feat: [B, 16 * 16 * F (243), 768] -> [B, 62208, 768]
         
         embeddings = self.fusion(pose_feat, video_feat)  # [B, 256]
-
-        # embeddings = torch.cat([pose_feat, video_feat], dim=-1)
-
-        print(f"User embedding shape: {embeddings.shape}")
         embeddings = F.normalize(embeddings, p=2, dim=1)
 
         return embeddings
