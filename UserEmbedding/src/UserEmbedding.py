@@ -106,21 +106,21 @@ class UserEmbedding:
             self.test_dataset = pickle.load(open(test_tensor_dataset_path, "rb"))
         else:
             
-        self.train_dataset = DanceDataset(
-            data_path=args.data_path,
-            backup_path=args.processed_data_dir,
-            train=True,
-            force_reload=getattr(args, "force_reload", False),
-            cache_data=getattr(args, "cache_data", False),
-        )
-        
-        self.test_dataset = DanceDataset(
-            data_path=args.data_path,
-            backup_path=args.processed_data_dir,
-            train=False,
-            force_reload=getattr(args, "force_reload", False),
-            cache_data=getattr(args, "cache_data", False),
-        )
+            self.train_dataset = DanceDataset(
+                data_path=args.data_path,
+                backup_path=args.processed_data_dir,
+                train=True,
+                force_reload=getattr(args, "force_reload", False),
+                cache_data=getattr(args, "cache_data", False),
+            )
+            
+            self.test_dataset = DanceDataset(
+                data_path=args.data_path,
+                backup_path=args.processed_data_dir,
+                train=False,
+                force_reload=getattr(args, "force_reload", False),
+                cache_data=getattr(args, "cache_data", False),
+            )
         
         self.motionbert = MotionBERTBackbone()
         #TODO: add more arguments for model: hidden size, emb size, etc
