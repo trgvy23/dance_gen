@@ -16,5 +16,6 @@
 		"evaluate_every": 2
     },
     "Model":  {
+        "checkpoint": ""
     }
 }
