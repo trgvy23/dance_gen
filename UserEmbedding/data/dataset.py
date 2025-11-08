@@ -130,7 +130,7 @@ class DanceDataset(Dataset):
                     pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
 
         logging.info(
-            f"Loaded {self.name} Dataset With Dimensions: \n\tVideos: {data['videos'].shape}, \n\tPose Estimations: {data['pose_estimations'].shape}"
+            f"Loaded {self.name} Dataset With Dimensions: \n\tVideo embeddings: {data['video_embeddings'].shape}, \n\tPose Estimations: {data['pose_estimations'].shape}"
         )
 
         self.data = {
@@ -215,7 +215,7 @@ class DanceDataset(Dataset):
 
         assert len(video_embeddings) == len(
             pose_estimations
-        ), f"Count mismatch: videos={len(video_embeddings)} pose_estimations={len(pose_estimations)}"
+        ), f"Count mismatch: video_embeddings={len(video_embeddings)} pose_estimations={len(pose_estimations)}"
 
         all_video_embeddings, all_pose_estimations, all_gerne_labels, all_dancer_labels = (
             [],
