@@ -51,6 +51,7 @@ def slice_video(
         batch = jnp.asarray(batch, dtype=fprop_dtype or jnp.float32)
         
         embeddings, _ = flax_model.apply(loaded_state, batch, train=False)
+        embeddings = embeddings.squeeze(0)  # [T, D]
         embeddings = np.asarray(embeddings, dtype=np.float32)
         
         np.save(os.path.join(output_dir, f"{basename}_slice{idx}.npy"), embeddings)
