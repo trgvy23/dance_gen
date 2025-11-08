@@ -217,12 +217,12 @@ class UserEmbedding:
             if not os.path.exists(self.log_dir):
                 os.makedirs(self.log_dir)
             print("Log dir:", self.log_dir)
-            log_folder_runs = "./runs/{}".format(self.log_dir.split('/')[-1])
-            if not os.path.exists(log_folder_runs):
-                os.system(f"mkdir -p {log_folder_runs}")
+            self.log_folder_runs = "./runs/{}".format(self.log_dir.split('/')[-1])
+            if not os.path.exists(self.log_folder_runs):
+                os.system(f"mkdir -p {self.log_folder_runs}")
                 
             # Write configuration file to the log dir
-            self.hparams.dump(log_dir, 'config.json')
+            self.hparams.dump(self.log_dir, 'config.json')
             
             
             self.print_every = self.hparams.Train.print_every
@@ -540,7 +540,7 @@ class UserEmbedding:
                 # save checkpoint
                 if self.global_step % self.save_every == self.save_every - 1 and self.global_step < self.max_iters:
                     if self.accelerator.is_main_process:
-                        save_path = os.path.join(log_dir, f"ckp_{global_step}.pt")
+                        save_path = os.path.join(self.log_dir, f"ckp_{self.global_step}.pt")
                         ckp = {
                             'model': self.accelerator.get_state_dict(self.user_embedding_net),
                             'optimizer': self.optimizer.state_dict(),
@@ -556,11 +556,11 @@ class UserEmbedding:
                     writer.add_scalar('train/epoch',
                                     self.global_step / len(train_data_loader),
                                     self.global_step)
-                    os.system(f"cp {log_dir}/events* {log_folder_runs}")
+                    os.system(f"cp {self.log_dir}/events* {self.log_folder_runs}")
 
                 
                 self.global_step += 1
                 if self.global_step >= self.max_iters:
                     print("Exit program!")
                     break
-        os.system(f"cp {log_dir}/events* {log_folder_runs}")
+        os.system(f"cp {self.log_dir}/events* {self.log_folder_runs}")
