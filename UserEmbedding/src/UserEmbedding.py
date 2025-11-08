@@ -10,7 +10,6 @@ from time import time
 from functools import partial
 import copy
 import random
-import SummaryWriter
 
 import torch
 import torch.nn as nn
