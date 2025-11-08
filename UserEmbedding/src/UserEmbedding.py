@@ -445,7 +445,7 @@ class UserEmbedding:
 
                 # TODO: add many arguments and inputs
                 with self.accelerator.autocast():
-                    embeddings, _, _ = self.user_embedding_net(
+                    embeddings, dancer_logits, genre_logits = self.user_embedding_net(
                         video_embedding, pose_est
                     )  # Compute embeddings using the model
 
