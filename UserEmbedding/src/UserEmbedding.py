@@ -483,8 +483,8 @@ class UserEmbedding:
                 lambda_g_ce   = getattr(self, "lambda_g_ce", 1.0)
 
                 loss = (
-                    lambda_d_ml * loss_dancer_ml
-                    + lambda_g_ml * loss_genre_ml
+                    lambda_d_ml * self.lambda_dancer
+                    + lambda_g_ml * self.lambda_genre
                     + lambda_d_ce * loss_dancer_ce
                     + lambda_g_ce * loss_genre_ce
                 )
