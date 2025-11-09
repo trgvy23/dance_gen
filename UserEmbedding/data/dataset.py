@@ -155,11 +155,17 @@ class DanceDataset(Dataset):
         )
         
     def get_dancer_num(self):
-        return len(self.dancer2id)
+        labels = self.data["dancer_labels"]
+        if isinstance(labels, np.ndarray):
+            return int(labels.max()) + 1
+        return int(labels.max().item()) + 1
     
     def get_gerne_num(self):
-        return len(self.genre2id)
-
+        labels = self.data["gerne_labels"]
+        if isinstance(labels, np.ndarray):
+            return int(labels.max()) + 1
+        return int(labels.max().item()) + 1
+    
     def read_video(self, video_embedding_path: str):
         return np.load(video_embedding_path, allow_pickle=True)  # (T, H, W, 3)
 
