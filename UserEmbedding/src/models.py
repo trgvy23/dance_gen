@@ -127,8 +127,8 @@ class UserEmbeddingNet(nn.Module):
         #     d_in=768, d_hidden=512, d_out=256, p_drop=0.1
         # )
         
-        self.dancer_predictor = MLP(256, 512, num_dancer_class, 4)
-        self.gerne_predictor = MLP(256, 512, num_gerne_class, 4)
+        self.dancer_predictor = MLP(256, 512, num_dancer_class, 3)
+        self.gerne_predictor = MLP(256, 512, num_gerne_class, 3)
         
         self.fusion = CrossAttentionFusion(
             d_pose=512,
