@@ -442,7 +442,10 @@ class UserEmbedding:
 
         last_time = datetime.datetime.now()
         for i_epoch in range(s_epoch, self.hparams.Train.epochs):
-            self.optimizer.step()
+            avg_dancer_loss = 0.0
+            avg_genre_loss = 0.0
+            avg_total_loss = 0.0
+            
             for batch_idx, (
                 video_embedding,
                 pose_est,
@@ -484,6 +487,8 @@ class UserEmbedding:
                 #     loss = loss + self.mu_triplet * (L1 + 0.5 * L2)
 
                 # classification losses
+                print("Dancer logits :", dancer_logits, "Genre logits :", genre_logits)
+                print("Dancer label  :", dancer_label, "Genre label  :", gerne_label)
                 loss_dancer_ce = F.cross_entropy(dancer_logits, dancer_label)
                 loss_genre_ce = F.cross_entropy(genre_logits, gerne_label)
 
@@ -554,6 +559,10 @@ class UserEmbedding:
                         self.optimizer.param_groups[0]["lr"],
                         self.global_step,
                     )
+                    
+                    avg_dancer_loss = 0.0
+                    avg_genre_loss = 0.0
+                    avg_total_loss = 0.0
 
                 # save checkpoint
                 if (
@@ -584,7 +593,7 @@ class UserEmbedding:
                         self.global_step,
                     )
                     os.system(f"cp {self.log_dir}/events* {self.log_folder_runs}")
-
+                
                 self.global_step += 1
                 if self.global_step >= self.max_iters:
                     print("Exit program!")
