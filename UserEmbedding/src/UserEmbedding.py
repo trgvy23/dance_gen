@@ -75,7 +75,7 @@ class UserEmbedding:
         self.hparams = JsonConfig(args.hparams)
 
         ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
-        self.accelerator = Accelerator(kwargs_handlers=[ddp_kwargs])
+        self.accelerator = Accelerator(kwargs_handlers=[ddp_kwargs], mixed_precision="bf16")
         state = AcceleratorState()
         num_processes = state.num_processes
 
@@ -125,6 +125,11 @@ class UserEmbedding:
             )
 
         self.motionbert = MotionBERTBackbone()
+        
+        self.motionbert.eval()
+        for p in self.motionbert.parameters():
+            p.requires_grad_(False)
+        
         # TODO: add more arguments for model: hidden size, emb size, etc
         self.user_embedding_net = UserEmbeddingNet(
             self.motionbert,
@@ -255,9 +260,9 @@ class UserEmbedding:
                     embs, _, _ = self.user_embedding_net(video_embedding, pose_est)
                     embs = F.normalize(embs, p=2, dim=1)  # for cosine
 
-                all_embs.append(embs)
-                all_dancer_labels.append(dancer_label)
-                all_genre_labels.append(genre_label)
+                all_embs.append(embs.cpu())
+                all_dancer_labels.append(dancer_label.cpu())
+                all_genre_labels.append(genre_label.cpu())
 
         # concat within each process
         all_embs = torch.cat(all_embs, dim=0)
