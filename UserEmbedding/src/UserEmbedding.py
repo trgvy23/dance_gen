@@ -487,8 +487,6 @@ class UserEmbedding:
                 #     loss = loss + self.mu_triplet * (L1 + 0.5 * L2)
 
                 # classification losses
-                print("Dancer logits :", dancer_logits, "Genre logits :", genre_logits)
-                print("Dancer label  :", dancer_label, "Genre label  :", gerne_label)
                 loss_dancer_ce = F.cross_entropy(dancer_logits, dancer_label)
                 loss_genre_ce = F.cross_entropy(genre_logits, gerne_label)
 
