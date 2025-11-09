@@ -329,20 +329,20 @@ class UserEmbedding:
 
         # DANCER RETRIEVAL: query = test, reference = train
         dancer_acc = acc_calc.get_accuracy(
-            query_embeddings=test_embs_np,
+            query=test_embs_np,
             query_labels=test_dancer_np,
-            reference_embeddings=train_embs_np,
+            reference=train_embs_np,
             reference_labels=train_dancer_np,
-            embeddings_come_from_same_source=False,
+            ref_includes_query=False,
         )
 
         # GENRE RETRIEVAL: query = test, reference = train
         genre_acc = acc_calc.get_accuracy(
-            query_embeddings=test_embs_np,
+            query=test_embs_np,
             query_labels=test_genre_np,
-            reference_embeddings=train_embs_np,
+            reference=train_embs_np,
             reference_labels=train_genre_np,
-            embeddings_come_from_same_source=False,
+            ref_includes_query=False,
         )
 
         print(
