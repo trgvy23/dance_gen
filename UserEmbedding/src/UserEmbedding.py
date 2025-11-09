@@ -601,4 +601,8 @@ class UserEmbedding:
                 if self.global_step >= self.max_iters:
                     print("Exit program!")
                     break
+                
+            if self.global_step >= self.max_iters:
+                print("Exit program!")
+                break
         os.system(f"cp {self.log_dir}/events* {self.log_folder_runs}")
