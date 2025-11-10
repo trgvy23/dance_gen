@@ -250,14 +250,15 @@ class UserEmbedding:
         all_genre_labels = []
 
         with torch.no_grad():
-            for video_embedding, pose_est, genre_label, dancer_label in data_loader:
+            for video_embedding, video_mask, pose_est, genre_label, dancer_label in data_loader:
                 video_embedding = video_embedding.to(self.accelerator.device)
+                video_mask = video_mask.to(self.accelerator.device)
                 pose_est = pose_est.to(self.accelerator.device)
                 genre_label = genre_label.to(self.accelerator.device)
                 dancer_label = dancer_label.to(self.accelerator.device)
 
                 with self.accelerator.autocast():
-                    embs, _, _ = self.user_embedding_net(video_embedding, pose_est)
+                    embs, _, _ = self.user_embedding_net(video_embedding, video_mask, pose_est)
                     embs = F.normalize(embs, p=2, dim=1)  # for cosine
 
                 all_embs.append(embs.cpu())
@@ -453,11 +454,13 @@ class UserEmbedding:
             
             for batch_idx, (
                 video_embedding,
+                video_mask,
                 pose_est,
                 gerne_label,
                 dancer_label,
             ) in enumerate(load_loop(train_data_loader)):
                 video_embedding = video_embedding.to(self.accelerator.device)
+                video_mask = video_mask.to(self.accelerator.device)
                 pose_est = pose_est.to(self.accelerator.device)
                 gerne_label = gerne_label.to(self.accelerator.device)
                 dancer_label = dancer_label.to(self.accelerator.device)
@@ -465,7 +468,7 @@ class UserEmbedding:
                 # TODO: add many arguments and inputs
                 with self.accelerator.autocast():
                     embeddings, dancer_logits, genre_logits = self.user_embedding_net(
-                        video_embedding, pose_est
+                        video_embedding, video_mask, pose_est
                     )  # Compute embeddings using the model
 
                 triplets_d = self.dancer_miner(embeddings, dancer_label)

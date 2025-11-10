@@ -130,17 +130,18 @@ class DanceDataset(Dataset):
                     pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
 
         logging.info(
-            f"Loaded {self.name} Dataset With Dimensions: \n\tVideo embeddings: {data['video_embeddings'].shape}, \n\tPose Estimations: {data['pose_estimations'].shape}"
+            f"Loaded {self.name} Dataset With Dimensions: \n\tVideo embeddings: {data['video_embeddings'].shape}, \n\tPose Estimations: {data['pose_estimations'].shape}, \n\tPose Masks: {data['video_masks'].shape}, \n\tGenre Labels: {data['gerne_labels'].shape}, \n\tDancer Labels: {data['dancer_labels'].shape}"
         )
 
         self.data = {
             "video_embeddings": data["video_embeddings"],
+            "video_masks": data["video_masks"],
             "pose_estimations": data["pose_estimations"],
             "gerne_labels": data["gerne_labels"],
             "dancer_labels": data["dancer_labels"],
         }
 
-        assert len(data["video_embeddings"]) == len(data["pose_estimations"])
+        assert len(data["video_embeddings"]) == len(data["pose_estimations"]) == len(data["video_masks"])
         self.length = len(data["video_embeddings"])
 
     def __len__(self):
@@ -149,25 +150,26 @@ class DanceDataset(Dataset):
     def __getitem__(self, idx):
         return (
             self.data["video_embeddings"][idx],
+            self.data["video_masks"][idx],
             self.data["pose_estimations"][idx],
             self.data["gerne_labels"][idx],
             self.data["dancer_labels"][idx],
         )
-        
+
     def get_dancer_num(self):
         labels = self.data["dancer_labels"]
         if isinstance(labels, np.ndarray):
             return int(labels.max()) + 1
         return int(labels.max().item()) + 1
-    
+
     def get_gerne_num(self):
         labels = self.data["gerne_labels"]
         if isinstance(labels, np.ndarray):
             return int(labels.max()) + 1
         return int(labels.max().item()) + 1
-    
-    def read_video(self, video_embedding_path: str):
-        return np.load(video_embedding_path, allow_pickle=True)  # (T, H, W, 3)
+
+    def read_npy_files(self, file_path: str):
+        return np.load(file_path, allow_pickle=True)  # (T, H, W, 3)
 
     def read_pose_estimation(self, json_path, vid_size=None):
         with open(json_path, "r") as read_file:
@@ -217,43 +219,56 @@ class DanceDataset(Dataset):
         #   |    |- pose_estimation
 
         video_embedding_path = os.path.join(split_root, "video_embedding_sliced")
+        video_mask_path = os.path.join(split_root, "video_mask_sliced")
         pose_estimation_path = os.path.join(split_root, "pose_estimation_sliced")
 
         # sort motions and sounds
-        video_embeddings = sorted(glob.glob(os.path.join(video_embedding_path, "*.npy")))
+        video_embeddings = sorted(
+            glob.glob(os.path.join(video_embedding_path, "*.npy"))
+        )
+        video_masks = sorted(glob.glob(os.path.join(video_mask_path, "*.npy")))
         pose_estimations = sorted(
             glob.glob(os.path.join(pose_estimation_path, "*.json"))
         )
 
-        assert len(video_embeddings) == len(
-            pose_estimations
-        ), f"Count mismatch: video_embeddings={len(video_embeddings)} pose_estimations={len(pose_estimations)}"
+        assert (
+            len(video_embeddings) == len(pose_estimations) == len(video_masks)
+        ), f"Count mismatch: video_embeddings={len(video_embeddings)} pose_estimations={len(pose_estimations)} video_masks={len(video_masks)}"
 
-        all_video_embeddings, all_pose_estimations, all_gerne_labels, all_dancer_labels = (
+        (
+            all_video_embeddings,
+            all_video_masks,
+            all_pose_estimations,
+            all_gerne_labels,
+            all_dancer_labels,
+        ) = (
+            [],
             [],
             [],
             [],
             [],
         )
 
-        for video_embedding_filename, pose_est_filename in tqdm(
-            zip(video_embeddings, pose_estimations), total=len(video_embeddings), desc="Loading data"
+        for video_embedding_filename, video_mask_filename, pose_est_filename in tqdm(
+            zip(video_embeddings, video_masks, pose_estimations),
+            total=len(video_embeddings),
+            desc="Loading data",
         ):
             v_name = os.path.splitext(os.path.basename(video_embedding_filename))[0]
             p_name = os.path.splitext(os.path.basename(pose_est_filename))[0]
-            assert (
-                v_name == p_name
-            ), f"Name mismatch: {video_embedding_filename} vs {pose_est_filename}"
+            m_name = os.path.splitext(os.path.basename(video_mask_filename))[0]
 
-            video_embedding = self.read_video(video_embedding_filename)
+            assert v_name == p_name == m_name, "Name mismatch {}, {}, {}".format(
+                v_name, p_name, m_name
+            )
+
+            video_embedding = self.read_npy_files(video_embedding_filename)
             all_video_embeddings.append(video_embedding)
 
-            # video_height = video_embedding.shape[1]
-            # video_width = video_embedding.shape[2]
+            video_mask = self.read_npy_files(video_mask_filename)
+            all_video_masks.append(video_mask)
 
-            pose_est = self.read_pose_estimation(
-                pose_est_filename, vid_size=None
-            )
+            pose_est = self.read_pose_estimation(pose_est_filename, vid_size=None)
             all_pose_estimations.append(pose_est)
 
             genre_id, dancer_id = self.read_label(v_name)
@@ -261,12 +276,14 @@ class DanceDataset(Dataset):
             all_dancer_labels.append(dancer_id)
 
         all_video_embeddings = np.array(all_video_embeddings)  # N x T x H x W x 3
+        all_video_masks = np.array(all_video_masks)  # N x T x H' x W'
         all_pose_estimations = np.array(all_pose_estimations)  # N x T x 17 x 3
         all_gerne_labels = np.array(all_gerne_labels)  # N
         all_dancer_labels = np.array(all_dancer_labels)  # N
 
         data = {
             "video_embeddings": all_video_embeddings,
+            "video_masks": all_video_masks,
             "pose_estimations": all_pose_estimations,
             "gerne_labels": all_gerne_labels,
             "dancer_labels": all_dancer_labels,

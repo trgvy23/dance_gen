@@ -266,6 +266,7 @@ class UserEmbeddingNet(nn.Module):
     def forward(
         self,
         video_feat: Tensor,   # [B, T_v, 768]
+        video_mask: Tensor,   
         pose_est:   Tensor,   # whatever MotionBERT expects
         pose_pad_mask:  Optional[Tensor] = None,  # [B, T_p]
         video_pad_mask: Optional[Tensor] = None,  # [B, T_v]
@@ -289,14 +290,32 @@ class UserEmbeddingNet(nn.Module):
         video_feat = self.video_encoder(
             video_feat, pad_mask=video_pad_mask
         )                                            # [B, T_v, D]
+        
+        # ---- Mask branch ----
+        # mask_feat = self.mask_proj(mask_feat)     # [B, T_v, D]
+        # mask_feat = self.mask_encoder(
+        #     mask_feat, pad_mask=mask_pad_mask
+        # )
+        print("Mask shape:", video_mask.shape)
 
-        # ---- Cross-attention: pose (Q) attends to video (K,V) ----
+        # ---- Cross-attention: pose (Q) attends to video (V) ----
         fused_pose = self.cross_attn(
             q=pose_feat,
             k=video_feat,
             v=video_feat,
             key_padding_mask=video_pad_mask,
         )                                            # [B, T_p, D]
+        
+        # ---- Cross-attention: pose (Q) attends to mask (M) ----
+        # fused_pose_mask = self.cross_attn(
+        #     q=pose_feat,
+        #     k=mask_feat,
+        #     v=mask_feat,
+        #     key_padding_mask=mask_pad_mask,
+        # )
+        
+        # --- Final fused pose ---
+        # fused_pose = fused_pose + fused_pose_mask
 
         # ---- Temporal attention pooling over pose timeline ----
         embeddings = self.pool_head(
