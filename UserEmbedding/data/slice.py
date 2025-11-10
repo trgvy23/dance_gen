@@ -7,6 +7,7 @@ import numpy as np
 from tqdm import tqdm
 from typing import Dict, List, Tuple
 import torch
+import mediapy
 
 from decord import VideoReader, cpu
 import jax
@@ -47,6 +48,7 @@ def slice_video(
     while start <= T - step * length_frames:
         inds = list(range(start, start + step * length_frames, step))
         batch = vr.get_batch(inds).asnumpy()
+        batch = mediapy.to_float01(batch)
         batch = torch.from_numpy(batch).unsqueeze(0).numpy()
         batch = jnp.asarray(batch, dtype=fprop_dtype or jnp.float32)
         

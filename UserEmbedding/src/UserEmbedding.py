@@ -29,7 +29,7 @@ from pytorch_metric_learning.samplers import MPerClassSampler
 from pytorch_metric_learning.utils import accuracy_calculator
 
 from data.dataset import DanceDataset
-from src.models import UserEmbeddingNet
+from dance_gen.UserEmbedding.src.models_old import UserEmbeddingNet
 from src.backbone import MotionBERTBackbone
 
 
