@@ -60,7 +60,8 @@ def slice_video(
     loaded_state = vp.load_pretrained_weights(videoprism_model)
     
     vr = VideoReader(video_path, width=VIDEO_WIDTH, height=VIDEO_HEIGHT, ctx=cpu(0))
-    vr_raw = VideoReader(video_path, ctx=cpu(0))
+    # #TODO: downsize for mask extraction to save memory/time
+    # vr_raw = VideoReader(video_path, ctx=cpu(0))
     T = len(vr)
 
     start = 0
@@ -84,7 +85,7 @@ def slice_video(
         np.save(os.path.join(feature_output_dir, f"{basename}_slice{idx}.npy"), embeddings)
         
         # --- Mask Segmentation extraction ---
-        frames = vr_raw.get_batch(inds).asnumpy()  # [T, H, W, 3]
+        frames = vr.get_batch(inds).asnumpy()  # [T, H, W, 3]
         T_slice = frames.shape[0]
         masks = []
         device = "cuda" if torch.cuda.is_available() else "cpu"

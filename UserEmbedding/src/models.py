@@ -205,7 +205,49 @@ class MLP(nn.Module):
         for i, layer in enumerate(self.layers):
             x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
         return x
-    
+
+class MaskBackbone(nn.Module):
+    """
+    Takes [B, T, H, W] probability masks and returns [B, T, D].
+    """
+    def __init__(self, d_out: int = 512, downsample: int = 128):
+        super().__init__()
+        self.downsample = downsample
+
+        self.conv = nn.Sequential(
+            nn.Conv2d(1, 16, 3, 2, 1),  # [B, 1, H, W] -> [B, 16, H/2, W/2]
+            nn.ReLU(inplace=True),
+            nn.Conv2d(16, 32, 3, 2, 1),
+            nn.ReLU(inplace=True),
+            nn.Conv2d(32, 64, 3, 2, 1),
+            nn.ReLU(inplace=True),
+            nn.AdaptiveAvgPool2d(1),    # -> [B, 64, 1, 1]
+        )
+        self.fc = nn.Linear(64, d_out)
+
+    def forward(self, masks: Tensor) -> Tensor:
+        """
+        masks: [B, T, H, W] float in [0,1]
+        returns: [B, T, d_out]
+        """
+        B, T, H, W = masks.shape
+        x = masks.view(B * T, 1, H, W)          # [B*T, 1, H, W]
+
+        if self.downsample is not None:
+            x = F.interpolate(
+                x,
+                size=(self.downsample, self.downsample),
+                mode="bilinear",
+                align_corners=False,
+            )
+
+        x = self.conv(x)                        # [B*T, 64, 1, 1]
+        x = x.view(B * T, -1)                   # [B*T, 64]
+        x = self.fc(x)                          # [B*T, d_out]
+        x = x.view(B, T, -1)                    # [B, T, d_out]
+        return x
+
+
 class UserEmbeddingNet(nn.Module):
     def __init__(self, motionbert: MotionBERTBackbone,
                  num_dancer_class: int,
@@ -227,6 +269,8 @@ class UserEmbeddingNet(nn.Module):
         # 2) project to common model dim
         self.pose_proj  = nn.Linear(d_pose_raw, d_model)
         self.video_proj = nn.Linear(d_video_in, d_model)
+        
+        self.mask_backbone = MaskBackbone(d_out=d_model)
 
         # 3) temporal encoders
         self.pose_encoder = TemporalSelfAttention(
@@ -242,6 +286,10 @@ class UserEmbeddingNet(nn.Module):
             n_layers=2,
             p_drop=p_drop,
             use_rotary=True,
+        )
+        self.mask_encoder = TemporalSelfAttention(
+            d_model=d_model, n_heads=n_heads, n_layers=2,
+            p_drop=p_drop, use_rotary=True,
         )
 
         # 4) cross-attention: pose (Q) ← video (K,V)
@@ -292,27 +340,24 @@ class UserEmbeddingNet(nn.Module):
         )                                            # [B, T_v, D]
         
         # ---- Mask branch ----
-        # mask_feat = self.mask_proj(mask_feat)     # [B, T_v, D]
-        # mask_feat = self.mask_encoder(
-        #     mask_feat, pad_mask=mask_pad_mask
-        # )
-        print("Mask shape:", video_mask.shape)
+        mask_feat = self.mask_backbone(video_mask)     # [B, T_v, D]
+        mask_feat = self.mask_encoder(mask_feat)
 
         # ---- Cross-attention: pose (Q) attends to video (V) ----
-        fused_pose = self.cross_attn(
+        fused_from_video = self.cross_attn_video(
             q=pose_feat,
             k=video_feat,
             v=video_feat,
-            key_padding_mask=video_pad_mask,
-        )                                            # [B, T_p, D]
+        )                                             # [B, T_p, D]
         
         # ---- Cross-attention: pose (Q) attends to mask (M) ----
-        # fused_pose_mask = self.cross_attn(
-        #     q=pose_feat,
-        #     k=mask_feat,
-        #     v=mask_feat,
-        #     key_padding_mask=mask_pad_mask,
-        # )
+        fused_from_mask = self.cross_attn_mask(
+            q=pose_feat,
+            k=mask_feat,
+            v=mask_feat,
+        )
+        
+        fused_pose = fused_from_video + fused_from_mask
         
         # --- Final fused pose ---
         # fused_pose = fused_pose + fused_pose_mask
