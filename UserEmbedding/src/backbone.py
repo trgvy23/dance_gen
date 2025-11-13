@@ -49,8 +49,8 @@ class MotionBERTBackbone(nn.Module):
         
         # TODO: do we need an MLP here?
         # out = out.mean(dim=1)  # [B, D]
-        # out = F.normalize(out, p=2, dim=1)
+        # # out = F.normalize(out, p=2, dim=1)
         
-        print('MotionBERTBackbone output shape:', out.shape)
+        # print('MotionBERTBackbone output shape:', out.shape)
         
         return out

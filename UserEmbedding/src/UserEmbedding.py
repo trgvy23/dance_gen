@@ -11,6 +11,7 @@ from functools import partial
 import copy
 import random
 import datetime
+import logging
 
 from common.config import JsonConfig
 
@@ -191,11 +192,15 @@ class UserEmbedding:
         # )
         self.dancer_loss_func = losses.CrossBatchMemory(
             losses.MultiSimilarityLoss(alpha=2, beta=50, base=0.5, distance=self.distance),
-            embedding_size=256, memory_size=4096
+            embedding_size=256,
+            memory_size=4096,
+            miner=miners.MultiSimilarityMiner(epsilon=0.1, distance=self.distance),  # <<—
         )
         self.genre_loss_func = losses.CrossBatchMemory(
             losses.MultiSimilarityLoss(alpha=2, beta=50, base=0.5, distance=self.distance),
-            embedding_size=256, memory_size=4096
+            embedding_size=256,
+            memory_size=4096,
+            miner=miners.MultiSimilarityMiner(epsilon=0.1, distance=self.distance),  # <<—
         )
 
         # NOTE: TripletMarginMiner
@@ -210,12 +215,12 @@ class UserEmbedding:
         #     type_of_triplets="all",
         # )
 
-        self.dancer_miner = miners.MultiSimilarityMiner(
-            epsilon=0.1, distance=self.distance
-        )
-        self.genre_miner = miners.MultiSimilarityMiner(
-            epsilon=0.1, distance=self.distance
-        )
+        # self.dancer_miner = miners.MultiSimilarityMiner(
+        #     epsilon=0.1, distance=self.distance
+        # )
+        # self.genre_miner = miners.MultiSimilarityMiner(
+        #     epsilon=0.1, distance=self.distance
+        # )
 
         self.lambda_genre = getattr(args, "lambda_genre", 0.5)
         self.lambda_dancer = getattr(args, "lambda_dancer", 1.0)
@@ -483,15 +488,23 @@ class UserEmbedding:
                         video_embedding, video_mask, pose_est
                     )  # Compute embeddings using the model
 
-                triplets_d = self.dancer_miner(embeddings, dancer_label)
-                triplets_g = self.genre_miner(embeddings, genre_label)
+                # triplets_d = self.dancer_miner(embeddings, dancer_label)
+                # triplets_g = self.genre_miner(embeddings, genre_label)
 
+                # loss_dancer = self.dancer_loss_func(
+                #     embeddings, dancer_label, indices_tuple=triplets_d
+                # )
+                # loss_genre = self.genre_loss_func(
+                #     embeddings, genre_label, indices_tuple=triplets_g
+                # )
+                
                 loss_dancer = self.dancer_loss_func(
-                    embeddings, dancer_label, indices_tuple=triplets_d
+                    embeddings, dancer_label
                 )
                 loss_genre = self.genre_loss_func(
-                    embeddings, genre_label, indices_tuple=triplets_g
+                    embeddings, genre_label
                 )
+                
                 # loss = self.lambda_dancer * loss_dancer + self.lambda_genre * loss_genre
 
                 # if self.use_triplet_reg:
@@ -525,6 +538,7 @@ class UserEmbedding:
 
                 # optional hierarchical triplet regularizer
                 if self.use_triplet_reg:
+                    logging.info("Using triplet regularization")
                     T1, T2 = build_hierarchical_triplets(dancer_label, genre_label)
                     L1 = self.triplet_reg(embeddings, dancer_label, indices_tuple=T1)
                     L2 = self.triplet_reg(embeddings, genre_label, indices_tuple=T2)
