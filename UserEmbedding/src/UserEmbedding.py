@@ -226,7 +226,6 @@ class UserEmbedding:
         self.lambda_dancer = getattr(args, "lambda_dancer", 1.0)
 
         self.use_triplet_reg = getattr(args, "use_triplet_reg", False)
-        print("Use triplet regularization:", self.use_triplet_reg)
         if self.use_triplet_reg:
             self.triplet_reg = losses.TripletMarginLoss(
                 margin=0.2, distance=self.distance
@@ -237,7 +236,6 @@ class UserEmbedding:
         self.log_dir = self.hparams.Train.log_dir
         self.epochs = self.hparams.Train.epochs
         self.batch_size = self.hparams.Train.batch_size
-        print("Batch size:", self.batch_size)
 
         if args.eval_only:
             self.user_embedding_net = self.accelerator.prepare(self.user_embedding_net)
@@ -540,7 +538,6 @@ class UserEmbedding:
 
                 # optional hierarchical triplet regularizer
                 if self.use_triplet_reg:
-                    print("Using triplet regularization")
                     T1, T2 = build_hierarchical_triplets(dancer_label, genre_label)
                     L1 = self.triplet_reg(embeddings, dancer_label, indices_tuple=T1)
                     L2 = self.triplet_reg(embeddings, genre_label, indices_tuple=T2)
