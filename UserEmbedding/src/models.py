@@ -256,7 +256,7 @@ class UserEmbeddingNet(nn.Module):
         self,
         motionbert: MotionBERTBackbone,
         num_dancer_class: int,
-        num_gerne_class: int,
+        num_genre_class: int,
     ):
         super().__init__()
 
@@ -324,7 +324,7 @@ class UserEmbeddingNet(nn.Module):
 
         # 6) classification heads
         self.dancer_predictor = MLP(d_embed, 512, num_dancer_class, 3)
-        self.gerne_predictor = MLP(d_embed, 512, num_gerne_class, 3)
+        self.genre_predictor = MLP(d_embed, 512, num_genre_class, 3)
 
     def forward(
         self,
@@ -380,6 +380,6 @@ class UserEmbeddingNet(nn.Module):
 
         # ---- Classification heads ----
         dancer_logits = self.dancer_predictor(embeddings)
-        gerne_logits = self.gerne_predictor(embeddings)
+        genre_logits = self.genre_predictor(embeddings)
 
-        return embeddings, dancer_logits, gerne_logits
+        return embeddings, dancer_logits, genre_logits

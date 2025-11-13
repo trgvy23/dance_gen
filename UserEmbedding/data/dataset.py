@@ -130,14 +130,14 @@ class DanceDataset(Dataset):
                     pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
 
         logging.info(
-            f"Loaded {self.name} Dataset With Dimensions: \n\tVideo embeddings: {data['video_embeddings'].shape}, \n\tPose Estimations: {data['pose_estimations'].shape}, \n\tPose Masks: {data['video_masks'].shape}, \n\tGenre Labels: {data['gerne_labels'].shape}, \n\tDancer Labels: {data['dancer_labels'].shape}"
+            f"Loaded {self.name} Dataset With Dimensions: \n\tVideo embeddings: {data['video_embeddings'].shape}, \n\tPose Estimations: {data['pose_estimations'].shape}, \n\tPose Masks: {data['video_masks'].shape}, \n\tGenre Labels: {data['genre_labels'].shape}, \n\tDancer Labels: {data['dancer_labels'].shape}"
         )
 
         self.data = {
             "video_embeddings": data["video_embeddings"],
             "video_masks": data["video_masks"],
             "pose_estimations": data["pose_estimations"],
-            "gerne_labels": data["gerne_labels"],
+            "genre_labels": data["genre_labels"],
             "dancer_labels": data["dancer_labels"],
         }
 
@@ -152,7 +152,7 @@ class DanceDataset(Dataset):
             self.data["video_embeddings"][idx],
             self.data["video_masks"][idx],
             self.data["pose_estimations"][idx],
-            self.data["gerne_labels"][idx],
+            self.data["genre_labels"][idx],
             self.data["dancer_labels"][idx],
         )
 
@@ -162,8 +162,8 @@ class DanceDataset(Dataset):
             return int(labels.max()) + 1
         return int(labels.max().item()) + 1
 
-    def get_gerne_num(self):
-        labels = self.data["gerne_labels"]
+    def get_genre_num(self):
+        labels = self.data["genre_labels"]
         if isinstance(labels, np.ndarray):
             return int(labels.max()) + 1
         return int(labels.max().item()) + 1
@@ -239,7 +239,7 @@ class DanceDataset(Dataset):
             all_video_embeddings,
             all_video_masks,
             all_pose_estimations,
-            all_gerne_labels,
+            all_genre_labels,
             all_dancer_labels,
         ) = (
             [],
@@ -272,20 +272,20 @@ class DanceDataset(Dataset):
             all_pose_estimations.append(pose_est)
 
             genre_id, dancer_id = self.read_label(v_name)
-            all_gerne_labels.append(genre_id)
+            all_genre_labels.append(genre_id)
             all_dancer_labels.append(dancer_id)
 
         all_video_embeddings = np.array(all_video_embeddings)  # N x T x H x W x 3
         all_video_masks = np.array(all_video_masks)  # N x T x H' x W'
         all_pose_estimations = np.array(all_pose_estimations)  # N x T x 17 x 3
-        all_gerne_labels = np.array(all_gerne_labels)  # N
+        all_genre_labels = np.array(all_genre_labels)  # N
         all_dancer_labels = np.array(all_dancer_labels)  # N
 
         data = {
             "video_embeddings": all_video_embeddings,
             "video_masks": all_video_masks,
             "pose_estimations": all_pose_estimations,
-            "gerne_labels": all_gerne_labels,
+            "genre_labels": all_genre_labels,
             "dancer_labels": all_dancer_labels,
         }
         return data
