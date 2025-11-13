@@ -591,7 +591,7 @@ class UserEmbedding:
 
                 # Evaluate
                 if self.global_step % self.eval_every == self.eval_every - 1:
-                    self.run_evaluation()
+                    # self.run_evaluation()
 
                     self.writer.add_scalar(
                         "train/epoch",
