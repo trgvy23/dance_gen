@@ -210,10 +210,8 @@ class MaskBackbone(nn.Module):
     """
     Takes [B, T, H, W] probability masks and returns [B, T, D].
     """
-    def __init__(self, d_out: int = 512, downsample: int = 128):
+    def __init__(self, d_out: int = 256):
         super().__init__()
-        self.downsample = downsample
-
         self.conv = nn.Sequential(
             nn.Conv2d(1, 16, 3, 2, 1),  # [B, 1, H, W] -> [B, 16, H/2, W/2]
             nn.ReLU(inplace=True),
@@ -232,15 +230,6 @@ class MaskBackbone(nn.Module):
         """
         B, T, H, W = masks.shape
         x = masks.view(B * T, 1, H, W)          # [B*T, 1, H, W]
-
-        if self.downsample is not None:
-            x = F.interpolate(
-                x,
-                size=(self.downsample, self.downsample),
-                mode="bilinear",
-                align_corners=False,
-            )
-
         x = self.conv(x)                        # [B*T, 64, 1, 1]
         x = x.view(B * T, -1)                   # [B*T, 64]
         x = self.fc(x)                          # [B*T, d_out]
@@ -258,13 +247,13 @@ class UserEmbeddingNet(nn.Module):
 
         d_pose_raw  = 512    # per-joint dim from MotionBERT
         d_video_in  = 768    # VideoPrism
-        d_model     = 512
+        d_model     = 256
         d_embed     = 256
         n_heads     = 8
         p_drop      = 0.1
 
         # 1) joints → per-frame pose feature
-        self.joint_flat_proj = nn.Linear(17 * 512, 512)   # if J=17
+        self.joint_flat_proj = nn.Linear(17 * 512, d_pose_raw)   # if J=17
 
         # 2) project to common model dim
         self.pose_proj  = nn.Linear(d_pose_raw, d_model)
@@ -326,9 +315,7 @@ class UserEmbeddingNet(nn.Module):
         B, T, J, D = pose_feat.shape
         pose_feat = pose_feat.view(B, T, J * D)           # [B, T, 17*512]
         pose_feat = self.joint_flat_proj(pose_feat)       # [B, T, 512]
-
         pose_feat = self.pose_proj(pose_feat)        # [B, T_p, D]
-
         pose_feat = self.pose_encoder(
             pose_feat, pad_mask=pose_pad_mask
         )                                            # [B, T_p, D]
