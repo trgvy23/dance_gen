@@ -293,11 +293,11 @@ class UserEmbeddingNet(nn.Module):
         )
 
         # 4) cross-attention: pose (Q) ← video (K,V)
-        self.cross_attn = CrossAttentionBlock(
-            d_model=d_model,
-            n_heads=n_heads,
-            p_drop=p_drop,
-            use_rotary=True,
+        self.cross_attn_video = CrossAttentionBlock(
+            d_model=d_model, n_heads=n_heads, p_drop=p_drop, use_rotary=True,
+        )
+        self.cross_attn_mask = CrossAttentionBlock(
+            d_model=d_model, n_heads=n_heads, p_drop=p_drop, use_rotary=True,
         )
 
         # 5) temporal attention pooling over pose timeline + MLP
