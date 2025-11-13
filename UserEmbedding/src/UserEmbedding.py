@@ -134,7 +134,7 @@ class UserEmbedding:
         self.user_embedding_net = UserEmbeddingNet(
             self.motionbert,
             num_dancer_class=self.train_dataset.get_dancer_num(),
-            num_gerne_class=self.train_dataset.get_gerne_num(),
+            num_genre_class=self.train_dataset.get_genre_num(),
         )
 
         self.optimizer = optim.AdamW(
@@ -150,7 +150,7 @@ class UserEmbedding:
         if len(self.hparams.Model.checkpoint) > 0:
             print(f"loading weights from {self.hparams.Model.checkpoint}")
             ckp = torch.load(
-                os.join(self.hparams.Train.log_dir, self.hparams.Model.checkpoint),
+                os.path.join(self.hparams.Train.log_dir, self.hparams.Model.checkpoint),
                 map_location=self.accelerator.device,
             )
             self.user_embedding_net.load_state_dict(ckp["model"], strict=False)
@@ -169,29 +169,37 @@ class UserEmbedding:
         #     distance=self.distance,
         #     reducer=self.reducer,
         # )
-        # self.gerne_loss_func = losses.TripletMarginLoss(
+        # self.genre_loss_func = losses.TripletMarginLoss(
         #     margin=0.2,
         #     distance=self.distance,
         #     reducer=self.reducer,
         # )
 
-        self.dancer_loss_func = losses.MultiSimilarityLoss(
-            alpha=2,
-            beta=50,
-            base=0.5,
-            distance=self.distance,
-            reducer=self.reducer,
+        # self.dancer_loss_func = losses.MultiSimilarityLoss(
+        #     alpha=2,
+        #     beta=50,
+        #     base=0.5,
+        #     distance=self.distance,
+        #     reducer=self.reducer,
+        # )
+        # self.genre_loss_func = losses.MultiSimilarityLoss(
+        #     alpha=2,
+        #     beta=50,
+        #     base=0.5,
+        #     distance=self.distance,
+        #     reducer=self.reducer,
+        # )
+        self.dancer_loss_func = losses.CrossBatchMemory(
+            losses.MultiSimilarityLoss(alpha=2, beta=50, base=0.5, distance=self.distance),
+            embedding_size=256, memory_size=4096
         )
-        self.genre_loss_func = losses.MultiSimilarityLoss(
-            alpha=2,
-            beta=50,
-            base=0.5,
-            distance=self.distance,
-            reducer=self.reducer,
+        self.genre_loss_func = losses.CrossBatchMemory(
+            losses.MultiSimilarityLoss(alpha=2, beta=50, base=0.5, distance=self.distance),
+            embedding_size=256, memory_size=4096
         )
 
         # NOTE: TripletMarginMiner
-        # self.gerne_miner = miners.TripletMarginMiner(
+        # self.genre_miner = miners.TripletMarginMiner(
         #     margin=0.2,
         #     distance=self.distance,
         #     type_of_triplets="all",
@@ -217,7 +225,7 @@ class UserEmbedding:
             self.triplet_reg = losses.TripletMarginLoss(
                 margin=0.2, distance=self.distance
             )
-            self.mu_triplet = getattr(args, "mu_triplet", 0.15)
+            self.mu_triplet = getattr(args, "mu_triplet", 0.2)
 
         ### OTHERS ###
         self.log_dir = self.hparams.Train.log_dir
@@ -225,6 +233,7 @@ class UserEmbedding:
         self.batch_size = self.hparams.Train.batch_size
 
         if args.eval_only:
+            self.user_embedding_net = self.accelerator.prepare(self.user_embedding_net)
             self.run_evaluation()
         else:
             self.writer = SummaryWriter(self.log_dir)
@@ -404,13 +413,15 @@ class UserEmbedding:
 
         all_dancer_labels = torch.tensor(
             [
-                self.train_dataset[i][3]  # index 3 = dancer_label in your tuple
+                self.train_dataset[i][4]
                 for i in range(len(self.train_dataset))
             ]
         )
-
+        
+        #TODO: K ở đây là số sample mỗi class, batch size = P * K (P là số class trong batch)
+        K = 10
         sampler = MPerClassSampler(
-            labels=all_dancer_labels, m=4, length_before_new_iter=len(all_dancer_labels)
+            labels=all_dancer_labels, m=K, length_before_new_iter=len(all_dancer_labels)
         )
         train_data_loader = DataLoader(
             self.train_dataset,
@@ -448,6 +459,7 @@ class UserEmbedding:
 
         last_time = datetime.datetime.now()
         for i_epoch in range(s_epoch, self.hparams.Train.epochs):
+            self.scheduler.step()
             avg_dancer_loss = 0.0
             avg_genre_loss = 0.0
             avg_total_loss = 0.0
@@ -456,13 +468,13 @@ class UserEmbedding:
                 video_embedding,
                 video_mask,
                 pose_est,
-                gerne_label,
+                genre_label,
                 dancer_label,
             ) in enumerate(load_loop(train_data_loader)):
                 video_embedding = video_embedding.to(self.accelerator.device)
                 video_mask = video_mask.to(self.accelerator.device)
                 pose_est = pose_est.to(self.accelerator.device)
-                gerne_label = gerne_label.to(self.accelerator.device)
+                genre_label = genre_label.to(self.accelerator.device)
                 dancer_label = dancer_label.to(self.accelerator.device)
 
                 # TODO: add many arguments and inputs
@@ -472,50 +484,50 @@ class UserEmbedding:
                     )  # Compute embeddings using the model
 
                 triplets_d = self.dancer_miner(embeddings, dancer_label)
-                triplets_g = self.genre_miner(embeddings, gerne_label)
+                triplets_g = self.genre_miner(embeddings, genre_label)
 
                 loss_dancer = self.dancer_loss_func(
                     embeddings, dancer_label, indices_tuple=triplets_d
                 )
-                loss_gerne = self.genre_loss_func(
-                    embeddings, gerne_label, indices_tuple=triplets_g
+                loss_genre = self.genre_loss_func(
+                    embeddings, genre_label, indices_tuple=triplets_g
                 )
-                # loss = self.lambda_dancer * loss_dancer + self.lambda_genre * loss_gerne
+                # loss = self.lambda_dancer * loss_dancer + self.lambda_genre * loss_genre
 
                 # if self.use_triplet_reg:
                 #     T1, T2 = build_hierarchical_triplets(
-                #         dancer_label, gerne_label
+                #         dancer_label, genre_label
                 #     )  # see helper below
                 #     L1 = self.triplet_reg(
                 #         embeddings, dancer_label, indices_tuple=T1
                 #     )  # same-dancer vs same-genre-diff-dancer
                 #     L2 = self.triplet_reg(
-                #         embeddings, gerne_label, indices_tuple=T2
+                #         embeddings, genre_label, indices_tuple=T2
                 #     )  # same-genre-diff-dancer vs diff-genre
                 #     loss = loss + self.mu_triplet * (L1 + 0.5 * L2)
 
                 # classification losses
                 loss_dancer_ce = F.cross_entropy(dancer_logits, dancer_label)
-                loss_genre_ce = F.cross_entropy(genre_logits, gerne_label)
+                loss_genre_ce = F.cross_entropy(genre_logits, genre_label)
 
                 # combine (example weights)
                 lambda_d_ml = self.lambda_dancer
                 lambda_g_ml = self.lambda_genre
                 lambda_d_ce = getattr(self, "lambda_d_ce", 1.0)
-                lambda_g_ce = getattr(self, "lambda_g_ce", 1.0)
+                lambda_g_ce = getattr(self, "lambda_g_ce", 0.5)
 
                 loss = (
                     lambda_d_ml * loss_dancer
-                    + lambda_g_ml * loss_gerne
+                    + lambda_g_ml * loss_genre
                     + lambda_d_ce * loss_dancer_ce
                     + lambda_g_ce * loss_genre_ce
                 )
 
                 # optional hierarchical triplet regularizer
                 if self.use_triplet_reg:
-                    T1, T2 = build_hierarchical_triplets(dancer_label, gerne_label)
+                    T1, T2 = build_hierarchical_triplets(dancer_label, genre_label)
                     L1 = self.triplet_reg(embeddings, dancer_label, indices_tuple=T1)
-                    L2 = self.triplet_reg(embeddings, gerne_label, indices_tuple=T2)
+                    L2 = self.triplet_reg(embeddings, genre_label, indices_tuple=T2)
                     loss = loss + self.mu_triplet * (L1 + 0.5 * L2)
 
                 self.optimizer.zero_grad()
@@ -524,7 +536,7 @@ class UserEmbedding:
 
                 if self.accelerator.is_main_process:
                     avg_dancer_loss += loss_dancer.item()
-                    avg_genre_loss += loss_gerne.item()
+                    avg_genre_loss += loss_genre.item()
                     avg_total_loss += loss.item()
 
                 if self.global_step % self.print_every == self.print_every - 1:
@@ -540,7 +552,7 @@ class UserEmbedding:
                     )
                     last_time = time
                     time = str(time)
-                    log_msg = "[{}], eta: {}, iter: {}, progress: {:.2f}%, epoch: {}, dancer loss: {:.4f}, , gerne loss: {:.4f}, total loss: {:.4f}".format(
+                    log_msg = "[{}], eta: {}, iter: {}, progress: {:.2f}%, epoch: {}, dancer loss: {:.4f}, , genre loss: {:.4f}, total loss: {:.4f}".format(
                         time[time.rfind(" ") + 1 : time.rfind(".")],
                         eta[: eta.rfind(".")],
                         self.global_step,
@@ -573,7 +585,7 @@ class UserEmbedding:
                 # save checkpoint
                 if (
                     self.global_step % self.save_every == self.save_every - 1
-                    and self.global_step < self.max_iters
+                    or self.global_step >= self.max_iters
                 ):
                     if self.accelerator.is_main_process:
                         save_path = os.path.join(
@@ -590,7 +602,7 @@ class UserEmbedding:
                         print(f"Saved checkpoint at step {self.global_step}")
 
                 # Evaluate
-                if self.global_step % self.eval_every == self.eval_every - 1:
+                if self.global_step % self.eval_every == self.eval_every - 1 or self.global_step >= self.max_iters:
                     self.run_evaluation()
 
                     self.writer.add_scalar(

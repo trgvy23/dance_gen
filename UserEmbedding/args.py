@@ -44,5 +44,8 @@ def parse_train_opt():
         default="checkpoint/motionbert/FT_MB_lite_MB_ft_h36m_global_lite/best_epoch.bin",
         help="pretrained MotionBERT checkpoint path",
     )
+    parser.add_argument(
+        "--use_triplet_reg", action="store_true", default=True, help="use triplet regularization"
+    )
     opt = parser.parse_args()
     return opt

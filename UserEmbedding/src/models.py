@@ -9,6 +9,7 @@ from torch import Tensor
 from src.backbone import MotionBERTBackbone
 from src.rotary_embedding import RotaryEmbedding
 
+
 class TransformerEncoderLayer(nn.Module):
     def __init__(
         self,
@@ -20,8 +21,6 @@ class TransformerEncoderLayer(nn.Module):
         layer_norm_eps: float = 1e-5,
         batch_first: bool = False,
         norm_first: bool = True,
-        device=None,
-        dtype=None,
         rotary=None,
     ) -> None:
         super().__init__()
@@ -79,11 +78,13 @@ class TransformerEncoderLayer(nn.Module):
         x = self.linear2(self.dropout(self.activation(self.linear1(x))))
         return self.dropout2(x)
 
+
 class TemporalSelfAttention(nn.Module):
     """
     Stacks several TransformerEncoderLayer blocks.
     Used for per-modality temporal encoding.
     """
+
     def __init__(
         self,
         d_model: int,
@@ -95,32 +96,36 @@ class TemporalSelfAttention(nn.Module):
         super().__init__()
         rotary = RotaryEmbedding(dim=d_model) if use_rotary else None
 
-        self.layers = nn.ModuleList([
-            TransformerEncoderLayer(
-                d_model=d_model,
-                nhead=n_heads,
-                dim_feedforward=4 * d_model,
-                dropout=p_drop,
-                batch_first=True,
-                norm_first=True,
-                rotary=rotary,
-            )
-            for _ in range(n_layers)
-        ])
+        self.layers = nn.ModuleList(
+            [
+                TransformerEncoderLayer(
+                    d_model=d_model,
+                    nhead=n_heads,
+                    dim_feedforward=4 * d_model,
+                    dropout=p_drop,
+                    batch_first=True,
+                    norm_first=True,
+                    rotary=rotary,
+                )
+                for _ in range(n_layers)
+            ]
+        )
 
     def forward(
         self,
-        x: Tensor,                       # [B, T, D]
+        x: Tensor,  # [B, T, D]
         pad_mask: Optional[Tensor] = None,  # [B, T], True = padding
     ) -> Tensor:
         for layer in self.layers:
             x = layer(x, src_key_padding_mask=pad_mask)
         return x
-    
+
+
 class CrossAttentionBlock(nn.Module):
     """
     One cross-attention block: Q attends to KV, with LayerNorm + residual.
     """
+
     def __init__(
         self,
         d_model: int,
@@ -141,9 +146,9 @@ class CrossAttentionBlock(nn.Module):
 
     def forward(
         self,
-        q: Tensor,                  # [B, T_q, D]
-        k: Tensor,                  # [B, T_k, D]
-        v: Tensor,                  # [B, T_k, D]
+        q: Tensor,  # [B, T_q, D]
+        k: Tensor,  # [B, T_k, D]
+        v: Tensor,  # [B, T_k, D]
         key_padding_mask: Optional[Tensor] = None,  # [B, T_k], True = pad
         attn_mask: Optional[Tensor] = None,
     ) -> Tensor:
@@ -156,19 +161,23 @@ class CrossAttentionBlock(nn.Module):
             q_rot, k_rot = q_norm, k
 
         attn_out, _ = self.mha(
-            q_rot, k_rot, v,
+            q_rot,
+            k_rot,
+            v,
             key_padding_mask=key_padding_mask,
             attn_mask=attn_mask,
             need_weights=False,
         )
         x = q_norm + self.dropout(attn_out)
         x = self.norm_o(x)
-        return x              # [B, T_q, D]
-    
+        return x  # [B, T_q, D]
+
+
 class TemporalAttentionPoolingHead(nn.Module):
     """
     Pools over time with attention, then MLP.
     """
+
     def __init__(self, d_model: int, d_out: int, p_drop: float = 0.1):
         super().__init__()
         self.att_pool = nn.Linear(d_model, 1)
@@ -181,35 +190,40 @@ class TemporalAttentionPoolingHead(nn.Module):
 
     def forward(
         self,
-        x: Tensor,                      # [B, T, D] (pose timeline)
-        pad_mask: Optional[Tensor] = None,   # [B, T], True = padding
+        x: Tensor,  # [B, T, D] (pose timeline)
+        pad_mask: Optional[Tensor] = None,  # [B, T], True = padding
     ) -> Tensor:
-        scores = self.att_pool(x).squeeze(-1)   # [B, T]
+        scores = self.att_pool(x).squeeze(-1)  # [B, T]
         if pad_mask is not None:
             scores = scores.masked_fill(pad_mask, -1e9)
         weights = torch.softmax(scores, dim=-1).unsqueeze(-1)  # [B, T, 1]
-        z = (weights * x).sum(dim=1)                           # [B, D]
-        z = self.mlp(z)                                        # [B, d_out]
+        z = (weights * x).sum(dim=1)  # [B, D]
+        z = self.mlp(z)  # [B, d_out]
         return z
+
 
 class MLP(nn.Module):
     """Very simple multi-layer perceptron (also called FFN)"""
+
     def __init__(self, input_dim, hidden_dim, output_dim, num_layers):
         super().__init__()
         self.num_layers = num_layers
         h = [hidden_dim] * (num_layers - 1)
         self.layers = nn.ModuleList(
-            nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim]))
+            nn.Linear(n, k) for n, k in zip([input_dim] + h, h + [output_dim])
+        )
 
     def forward(self, x):
         for i, layer in enumerate(self.layers):
             x = F.relu(layer(x)) if i < self.num_layers - 1 else layer(x)
         return x
 
+
 class MaskBackbone(nn.Module):
     """
     Takes [B, T, H, W] probability masks and returns [B, T, D].
     """
+
     def __init__(self, d_out: int = 256):
         super().__init__()
         self.conv = nn.Sequential(
@@ -219,7 +233,7 @@ class MaskBackbone(nn.Module):
             nn.ReLU(inplace=True),
             nn.Conv2d(32, 64, 3, 2, 1),
             nn.ReLU(inplace=True),
-            nn.AdaptiveAvgPool2d(1),    # -> [B, 64, 1, 1]
+            nn.AdaptiveAvgPool2d(1),  # -> [B, 64, 1, 1]
         )
         self.fc = nn.Linear(64, d_out)
 
@@ -229,36 +243,39 @@ class MaskBackbone(nn.Module):
         returns: [B, T, d_out]
         """
         B, T, H, W = masks.shape
-        x = masks.view(B * T, 1, H, W)          # [B*T, 1, H, W]
-        x = self.conv(x)                        # [B*T, 64, 1, 1]
-        x = x.view(B * T, -1)                   # [B*T, 64]
-        x = self.fc(x)                          # [B*T, d_out]
-        x = x.view(B, T, -1)                    # [B, T, d_out]
+        x = masks.view(B * T, 1, H, W)  # [B*T, 1, H, W]
+        x = self.conv(x)  # [B*T, 64, 1, 1]
+        x = x.view(B * T, -1)  # [B*T, 64]
+        x = self.fc(x)  # [B*T, d_out]
+        x = x.view(B, T, -1)  # [B, T, d_out]
         return x
 
 
 class UserEmbeddingNet(nn.Module):
-    def __init__(self, motionbert: MotionBERTBackbone,
-                 num_dancer_class: int,
-                 num_gerne_class: int):
+    def __init__(
+        self,
+        motionbert: MotionBERTBackbone,
+        num_dancer_class: int,
+        num_gerne_class: int,
+    ):
         super().__init__()
 
         self.motionbert = motionbert
 
-        d_pose_raw  = 512    # per-joint dim from MotionBERT
-        d_video_in  = 768    # VideoPrism
-        d_model     = 256
-        d_embed     = 256
-        n_heads     = 8
-        p_drop      = 0.1
+        d_pose_raw = 512  # per-joint dim from MotionBERT
+        d_video_in = 768  # VideoPrism
+        d_model = 256
+        d_embed = 256
+        n_heads = 8
+        p_drop = 0.1
 
         # 1) joints → per-frame pose feature
-        self.joint_flat_proj = nn.Linear(17 * 512, d_pose_raw)   # if J=17
+        self.joint_flat_proj = nn.Linear(17 * 512, d_pose_raw)  # if J=17
 
         # 2) project to common model dim
-        self.pose_proj  = nn.Linear(d_pose_raw, d_model)
+        self.pose_proj = nn.Linear(d_pose_raw, d_model)
         self.video_proj = nn.Linear(d_video_in, d_model)
-        
+
         self.mask_backbone = MaskBackbone(d_out=d_model)
 
         # 3) temporal encoders
@@ -277,16 +294,25 @@ class UserEmbeddingNet(nn.Module):
             use_rotary=True,
         )
         self.mask_encoder = TemporalSelfAttention(
-            d_model=d_model, n_heads=n_heads, n_layers=2,
-            p_drop=p_drop, use_rotary=True,
+            d_model=d_model,
+            n_heads=n_heads,
+            n_layers=2,
+            p_drop=p_drop,
+            use_rotary=True,
         )
 
         # 4) cross-attention: pose (Q) ← video (K,V)
         self.cross_attn_video = CrossAttentionBlock(
-            d_model=d_model, n_heads=n_heads, p_drop=p_drop, use_rotary=True,
+            d_model=d_model,
+            n_heads=n_heads,
+            p_drop=p_drop,
+            use_rotary=True,
         )
         self.cross_attn_mask = CrossAttentionBlock(
-            d_model=d_model, n_heads=n_heads, p_drop=p_drop, use_rotary=True,
+            d_model=d_model,
+            n_heads=n_heads,
+            p_drop=p_drop,
+            use_rotary=True,
         )
 
         # 5) temporal attention pooling over pose timeline + MLP
@@ -298,36 +324,34 @@ class UserEmbeddingNet(nn.Module):
 
         # 6) classification heads
         self.dancer_predictor = MLP(d_embed, 512, num_dancer_class, 3)
-        self.gerne_predictor  = MLP(d_embed, 512, num_gerne_class, 3)
+        self.gerne_predictor = MLP(d_embed, 512, num_gerne_class, 3)
 
     def forward(
         self,
-        video_feat: Tensor,   # [B, T_v, 768]
-        video_mask: Tensor,   
-        pose_est:   Tensor,   # whatever MotionBERT expects
-        pose_pad_mask:  Optional[Tensor] = None,  # [B, T_p]
+        video_feat: Tensor,  # [B, T_v, 768]
+        video_mask: Tensor,
+        pose_est: Tensor,  # whatever MotionBERT expects
+        pose_pad_mask: Optional[Tensor] = None,  # [B, T_p]
         video_pad_mask: Optional[Tensor] = None,  # [B, T_v]
     ):
         # ---- Pose branch ----
         with torch.no_grad():
-            pose_feat = self.motionbert(pose_est)    # [B, T_p, J, 512]
+            pose_feat = self.motionbert(pose_est)  # [B, T_p, J, 512]
 
         B, T, J, D = pose_feat.shape
-        pose_feat = pose_feat.view(B, T, J * D)           # [B, T, 17*512]
-        pose_feat = self.joint_flat_proj(pose_feat)       # [B, T, 512]
-        pose_feat = self.pose_proj(pose_feat)        # [B, T_p, D]
-        pose_feat = self.pose_encoder(
-            pose_feat, pad_mask=pose_pad_mask
-        )                                            # [B, T_p, D]
+        pose_feat = pose_feat.view(B, T, J * D)  # [B, T, 17*512]
+        pose_feat = self.joint_flat_proj(pose_feat)  # [B, T, 512]
+        pose_feat = self.pose_proj(pose_feat)  # [B, T_p, D]
+        pose_feat = self.pose_encoder(pose_feat, pad_mask=pose_pad_mask)  # [B, T_p, D]
 
         # ---- Video branch ----
-        video_feat = self.video_proj(video_feat)     # [B, T_v, D]
+        video_feat = self.video_proj(video_feat)  # [B, T_v, D]
         video_feat = self.video_encoder(
             video_feat, pad_mask=video_pad_mask
-        )                                            # [B, T_v, D]
-        
+        )  # [B, T_v, D]
+
         # ---- Mask branch ----
-        mask_feat = self.mask_backbone(video_mask)     # [B, T_v, D]
+        mask_feat = self.mask_backbone(video_mask)  # [B, T_v, D]
         mask_feat = self.mask_encoder(mask_feat)
 
         # ---- Cross-attention: pose (Q) attends to video (V) ----
@@ -335,30 +359,27 @@ class UserEmbeddingNet(nn.Module):
             q=pose_feat,
             k=video_feat,
             v=video_feat,
-        )                                             # [B, T_p, D]
-        
+        )  # [B, T_p, D]
+
         # ---- Cross-attention: pose (Q) attends to mask (M) ----
         fused_from_mask = self.cross_attn_mask(
             q=pose_feat,
             k=mask_feat,
             v=mask_feat,
         )
-        
+
         fused_pose = fused_from_video + fused_from_mask
-        
-        # --- Final fused pose ---
-        # fused_pose = fused_pose + fused_pose_mask
 
         # ---- Temporal attention pooling over pose timeline ----
         embeddings = self.pool_head(
             fused_pose,
             pad_mask=pose_pad_mask,
-        )                                            # [B, 256]
+        )  # [B, 256]
 
         embeddings = F.normalize(embeddings, p=2, dim=1)
 
         # ---- Classification heads ----
         dancer_logits = self.dancer_predictor(embeddings)
-        gerne_logits  = self.gerne_predictor(embeddings)
+        gerne_logits = self.gerne_predictor(embeddings)
 
         return embeddings, dancer_logits, gerne_logits
