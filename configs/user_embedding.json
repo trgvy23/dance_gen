@@ -9,11 +9,11 @@
 			0.999
 		],
         "lr_steps": [50, 100],
-        "max_iters": 30000,
-        "print_every": 2000,
-        "checkpoint_every": 2000,
+        "max_iters": 1000,
+        "print_every": 100,
+        "checkpoint_every": 100,
         "max_checkpoints": 5,
-		"evaluate_every": 2000
+		"evaluate_every": 100
     },
     "Model":  {
         "checkpoint": ""
