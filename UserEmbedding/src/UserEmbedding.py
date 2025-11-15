@@ -257,11 +257,15 @@ class UserEmbedding:
             self.save_every = self.hparams.Train.checkpoint_every
             self.eval_every = self.hparams.Train.evaluate_every
 
-    def _extract_embeddings(self, data_loader):
+    def _extract_embeddings(self, data_loader, is_train_dataloader):
         self.user_embedding_net.eval()
         all_embs = []
         all_dancer_labels = []
         all_genre_labels = []
+        
+        total_correct_dancer = 0
+        total_correct_genre = 0
+        total_samples = 0
 
         with torch.no_grad():
             for video_embedding, video_mask, pose_est, genre_label, dancer_label in data_loader:
@@ -272,12 +276,23 @@ class UserEmbedding:
                 dancer_label = dancer_label.to(self.accelerator.device)
 
                 with self.accelerator.autocast():
-                    embs, _, _ = self.user_embedding_net(video_embedding, video_mask, pose_est)
+                    if is_train_dataloader:
+                        embs, _, _ = self.user_embedding_net(video_embedding, video_mask, pose_est)
+                    else:
+                        embs, dancer_logits, genre_logits = self.user_embedding_net(video_embedding, video_mask, pose_est)
                     embs = F.normalize(embs, p=2, dim=1)  # for cosine
 
                 all_embs.append(embs.cpu())
                 all_dancer_labels.append(dancer_label.cpu())
                 all_genre_labels.append(genre_label.cpu())
+                
+                if not is_train_dataloader:
+                    dancer_pred = dancer_logits.argmax(dim=1)
+                    genre_pred = genre_logits.argmax(dim=1)
+
+                    total_correct_dancer += (dancer_pred == dancer_label).sum().item()
+                    total_correct_genre += (genre_pred == genre_label).sum().item()
+                    total_samples += dancer_label.size(0)
 
         # concat within each process
         all_embs = torch.cat(all_embs, dim=0)
@@ -288,8 +303,40 @@ class UserEmbedding:
         all_embs = self.accelerator.gather_for_metrics(all_embs)
         all_dancer_labels = self.accelerator.gather_for_metrics(all_dancer_labels)
         all_genre_labels = self.accelerator.gather_for_metrics(all_genre_labels)
+        
+        if is_train_dataloader:
+            return all_embs, all_dancer_labels, all_genre_labels
+        
+        else:
+            total_correct_dancer = torch.tensor(
+            total_correct_dancer,
+            device=self.accelerator.device,
+            dtype=torch.long,
+            )
+            total_correct_genre = torch.tensor(
+                total_correct_genre,
+                device=self.accelerator.device,
+                dtype=torch.long,
+            )
+            total_samples = torch.tensor(
+                total_samples,
+                device=self.accelerator.device,
+                dtype=torch.long,
+            )
 
-        return all_embs, all_dancer_labels, all_genre_labels
+            # gather from all processes
+            total_correct_dancer_all = self.accelerator.gather_for_metrics(total_correct_dancer)
+            total_correct_genre_all = self.accelerator.gather_for_metrics(total_correct_genre)
+            total_samples_all = self.accelerator.gather_for_metrics(total_samples)
+
+            dancer_acc = (
+                total_correct_dancer_all.sum().float() / total_samples_all.sum().float()
+            ).item()
+            genre_acc = (
+                total_correct_genre_all.sum().float() / total_samples_all.sum().float()
+            ).item()
+            
+            return all_embs, all_dancer_labels, all_genre_labels, dancer_acc, genre_acc
 
     def run_evaluation(self):
 
@@ -320,9 +367,9 @@ class UserEmbedding:
 
         # extract embeddings
         train_embs, train_dancer, train_genre = self._extract_embeddings(
-            train_data_loader
+            train_data_loader, is_train_dataloader=True
         )
-        test_embs, test_dancer, test_genre = self._extract_embeddings(test_data_loader)
+        test_embs, test_dancer, test_genre, dancer_cls_acc, genre_cls_acc = self._extract_embeddings(test_data_loader, is_train_dataloader=False)
 
         if not self.accelerator.is_main_process:
             # only main process prints/logs
@@ -374,6 +421,17 @@ class UserEmbedding:
                 genre_acc["mean_average_precision_at_r"],
             )
         )
+        
+        print(
+            "[Eval] DANCER_CLS | acc: {:.4f}".format(
+                dancer_cls_acc
+            )
+        )
+        print(
+            "[Eval] GENRE_CLS  | acc: {:.4f}".format(
+                genre_cls_acc
+            )
+        )
 
         # TensorBoard logging
         if hasattr(self, "writer"):
@@ -399,6 +457,14 @@ class UserEmbedding:
                 "eval/genre_map_at_r",
                 genre_acc["mean_average_precision_at_r"],
                 self.global_step,
+            )
+            
+            self.writer.add_scalar(
+                "eval/test_dancer_cls_acc", dancer_cls_acc, self.global_step
+            )
+            
+            self.writer.add_scalar(
+                "eval/test_genre_cls_acc", genre_cls_acc, self.global_step
             )
 
         self.user_embedding_net.train()
