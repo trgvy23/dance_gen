@@ -92,6 +92,40 @@ def crop_scale(motion, scale_range=[1, 1]):
     result = np.clip(result, -1, 1)
     return result
 
+def parse_aist_labels_from_name(filename: str):
+    """
+    filename example: 'gBR_sBM_cAll_d04_mBR0_ch02'
+    returns: ('gBR', 'd04')
+    """
+    m = re.match(r"^(g[A-Z]{2})_.*_(d\d+)_m", filename)
+    assert m, f"Bad AIST++ name: {filename}"
+    genre_code = m.group(1)   # 'gBR'
+    dancer_code = m.group(2)  # 'd04'
+    return genre_code, dancer_code
+
+def build_label_mappings(data_path: str, splits=("train", "test")):
+    """
+    Scan all splits and build a single consistent genre2id, dancer2id mapping.
+    """
+    genre2id = {}
+    dancer2id = {}
+
+    for split in splits:
+        split_root = os.path.join(data_path, split)
+        video_embedding_path = os.path.join(split_root, "video_embedding_sliced")
+        video_embeddings = sorted(glob.glob(os.path.join(video_embedding_path, "*.npy")))
+
+        for fpath in video_embeddings:
+            v_name = os.path.splitext(os.path.basename(fpath))[0]
+            genre_code, dancer_code = parse_aist_labels_from_name(v_name)
+
+            if genre_code not in genre2id:
+                genre2id[genre_code] = len(genre2id)
+            if dancer_code not in dancer2id:
+                dancer2id[dancer_code] = len(dancer2id)
+
+    return genre2id, dancer2id
+
 
 class DanceDataset(Dataset):
     def __init__(
@@ -101,6 +135,8 @@ class DanceDataset(Dataset):
         train: bool = True,
         force_reload: bool = False,
         cache_data: bool = False,
+        genre2id=None,
+        dancer2id=None,
     ):
         self.data_path = data_path
         # self.raw_fps = 60
@@ -111,8 +147,11 @@ class DanceDataset(Dataset):
         self.train = train
         self.name = "Train" if self.train else "Test"
 
-        self.genre2id, self.dancer2id = {}, {}
-
+        # If provided, we treat them as fixed global mappings
+        self.genre2id = {} if genre2id is None else genre2id
+        self.dancer2id = {} if dancer2id is None else dancer2id
+        self.fixed_label_maps = (genre2id is not None) and (dancer2id is not None)
+        
         pickle_name = "processed_train_data.pkl" if train else "processed_test_data.pkl"
 
         backup_path = Path(backup_path)
@@ -191,21 +230,26 @@ class DanceDataset(Dataset):
         return pose_estimation.astype(np.float32)  # (T, 17, 3)
 
     def parse_aist_labels(self, filename):
-        # name: "gBR_sBM_cAll_d04_mBR0_ch02"
-        m = re.match(r"^(g[A-Z]{2})_.*_m([A-Z]{2}\d+)_", filename)
-        assert m, f"Bad AIST++ name: {filename}"
-        genre_code = m.group(1)  # e.g., gBR
-        dancer_code = m.group(2)  # e.g., BR0
-        return genre_code, dancer_code
+        return parse_aist_labels_from_name(filename)
 
     def read_label(self, filename):
         genre_code, dancer_code = self.parse_aist_labels(filename)
-        if genre_code not in self.genre2id:
-            self.genre2id[genre_code] = len(self.genre2id)
-        if dancer_code not in self.dancer2id:
-            self.dancer2id[dancer_code] = len(self.dancer2id)
-        genre_id = self.genre2id[genre_code]
-        dancer_id = self.dancer2id[dancer_code]
+        
+        if self.fixed_label_maps:
+            # We expect these to already exist in the global mapping
+            assert genre_code in self.genre2id, f"Unknown genre {genre_code}"
+            assert dancer_code in self.dancer2id, f"Unknown dancer {dancer_code}"
+            genre_id = self.genre2id[genre_code]
+            dancer_id = self.dancer2id[dancer_code]
+        else:
+            # Build mapping on-the-fly (e.g. if you're using only one split somewhere)
+            if genre_code not in self.genre2id:
+                self.genre2id[genre_code] = len(self.genre2id)
+            if dancer_code not in self.dancer2id:
+                self.dancer2id[dancer_code] = len(self.dancer2id)
+            genre_id = self.genre2id[genre_code]
+            dancer_id = self.dancer2id[dancer_code]
+
         return genre_id, dancer_id
 
     def load_aistpp(self):

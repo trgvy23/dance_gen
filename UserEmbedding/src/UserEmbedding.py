@@ -29,7 +29,7 @@ from pytorch_metric_learning import distances, losses, miners, reducers, testers
 from pytorch_metric_learning.samplers import MPerClassSampler
 from pytorch_metric_learning.utils import accuracy_calculator
 
-from data.dataset import DanceDataset
+from data.dataset import DanceDataset, build_label_mappings
 from src.models import UserEmbeddingNet
 from src.backbone import MotionBERTBackbone
 
@@ -91,6 +91,11 @@ class UserEmbedding:
         #     )
 
         # DATASETS
+        
+        print("Building global label mappings...")
+        genre2id, dancer2id = build_label_mappings(args.data_path)
+        print(f"Num genres:  {len(genre2id)}")
+        print(f"Num dancers: {len(dancer2id)}")
 
         ### LOAD DATASET ###
         print("Loading DanceDataset...")
@@ -115,6 +120,8 @@ class UserEmbedding:
                 train=True,
                 force_reload=getattr(args, "force_reload", False),
                 cache_data=getattr(args, "cache_data", False),
+                genre2id=genre2id,
+                dancer2id=dancer2id,
             )
 
             self.test_dataset = DanceDataset(
@@ -123,6 +130,8 @@ class UserEmbedding:
                 train=False,
                 force_reload=getattr(args, "force_reload", False),
                 cache_data=getattr(args, "cache_data", False),
+                genre2id=genre2id,
+                dancer2id=dancer2id,
             )
 
         self.motionbert = MotionBERTBackbone()
