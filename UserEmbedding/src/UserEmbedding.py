@@ -423,8 +423,10 @@ class UserEmbedding:
             ]
         )
         
+        print("Dancer labels:", all_dancer_labels)
+        
         #TODO: K ở đây là số sample mỗi class, batch size = P * K (P là số class trong batch)
-        K = 10
+        K = 8
         sampler = MPerClassSampler(
             labels=all_dancer_labels, m=K, length_before_new_iter=len(all_dancer_labels)
         )
