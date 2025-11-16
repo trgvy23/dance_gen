@@ -13,7 +13,7 @@
         "print_every": 100,
         "checkpoint_every": 100,
         "max_checkpoints": 5,
-		"evaluate_every": 100
+		"evaluate_every": 5
     },
     "Model":  {
         "checkpoint": ""
