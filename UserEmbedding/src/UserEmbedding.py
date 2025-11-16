@@ -133,6 +133,29 @@ class UserEmbedding:
                 genre2id=genre2id,
                 dancer2id=dancer2id,
             )
+            
+        # After datasets are created in __init__
+        train_dancers = torch.tensor([self.train_dataset[i][4] for i in range(len(self.train_dataset))])
+        test_dancers  = torch.tensor([self.test_dataset[i][4]  for i in range(len(self.test_dataset))])
+
+        train_genres = torch.tensor([self.train_dataset[i][3] for i in range(len(self.train_dataset))])
+        test_genres  = torch.tensor([self.test_dataset[i][3]  for i in range(len(self.test_dataset))])
+
+        print("Train dancer id range:", train_dancers.min().item(), "→", train_dancers.max().item())
+        print("Test  dancer id range:", test_dancers.min().item(),  "→", test_dancers.max().item())
+
+        print("Train genre id range:", train_genres.min().item(), "→", train_genres.max().item())
+        print("Test  genre id range:", test_genres.min().item(),  "→", test_genres.max().item())
+
+        print("Num unique train dancers:", train_dancers.unique().numel())
+        print("Num unique test dancers: ", test_dancers.unique().numel())
+
+        print("Num unique train genres:", train_genres.unique().numel())
+        print("Num unique test genres: ", test_genres.unique().numel())
+
+        print("Overlap dancers:", len(set(train_dancers.tolist()) & set(test_dancers.tolist())))
+        print("Overlap genres:",  len(set(train_genres.tolist())  & set(test_genres.tolist())))
+
 
         self.motionbert = MotionBERTBackbone()
         
@@ -289,7 +312,6 @@ class UserEmbedding:
                         embs, _, _ = self.user_embedding_net(video_embedding, video_mask, pose_est)
                     else:
                         embs, dancer_logits, genre_logits = self.user_embedding_net(video_embedding, video_mask, pose_est)
-                    embs = F.normalize(embs, p=2, dim=1)  # for cosine
 
                 all_embs.append(embs.cpu())
                 all_dancer_labels.append(dancer_label.cpu())
@@ -375,8 +397,8 @@ class UserEmbedding:
         )
 
         # extract embeddings
-        train_embs, train_dancer, train_genre = self._extract_embeddings(
-            train_data_loader, is_train_dataloader=True
+        train_embs, train_dancer, train_genre, dancer_cls_train_acc, genre_cls_train_acc = self._extract_embeddings(
+            train_data_loader, is_train_dataloader=False
         )
         test_embs, test_dancer, test_genre, dancer_cls_acc, genre_cls_acc = self._extract_embeddings(test_data_loader, is_train_dataloader=False)
 
@@ -439,6 +461,17 @@ class UserEmbedding:
         print(
             "[Eval] GENRE_CLS  | acc: {:.4f}".format(
                 genre_cls_acc
+            )
+        )
+        
+        print(
+            "[Train] DANCER_CLS | acc: {:.4f}".format(
+                dancer_cls_train_acc
+            )
+        )
+        print(
+            "[Train] GENRE_CLS  | acc: {:.4f}".format(
+                genre_cls_train_acc
             )
         )
 
@@ -538,6 +571,8 @@ class UserEmbedding:
         self.accelerator.wait_for_everyone()
 
         s_epoch = int(self.global_step / len(train_data_loader))
+        
+        self.user_embedding_net.train()
 
         last_time = datetime.datetime.now()
         for i_epoch in range(s_epoch, self.hparams.Train.epochs):
