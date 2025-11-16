@@ -7,12 +7,15 @@ import numpy as np
 import torch
 from src.MotionBert.DSTformer import DSTformer
 
+
 class MotionBERTBackbone(nn.Module):
-    def __init__(self,):
+    def __init__(
+        self,
+    ):
         super(MotionBERTBackbone, self).__init__()
         # TODO: hardcode args for MotionBERT for now: https://github.com/Walter0807/MotionBERT/blob/main/configs/pose3d/MB_ft_h36m_global_lite.yaml
-        
-        print('Initializing MotionBERTBackbone...')
+
+        print("Initializing MotionBERTBackbone...")
         self.dstformer = DSTformer(
             dim_in=3,
             dim_out=3,
@@ -25,18 +28,23 @@ class MotionBERTBackbone(nn.Module):
             maxlen=243,
             num_joints=17,
         )
-        
-        #TODO: load pretrained MotionBERT weights
+
+        # TODO: load pretrained MotionBERT weights
         if torch.cuda.is_available():
             self.dstformer = nn.DataParallel(self.dstformer)
             self.dstformer = self.dstformer.cuda()
 
-        print('Loading checkpoint', "/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/checkpoint/motionbert/FT_MB_lite_MB_ft_h36m_global_lite/best_epoch.bin")
-        checkpoint = torch.load("/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/checkpoint/motionbert/FT_MB_lite_MB_ft_h36m_global_lite/best_epoch.bin", map_location=lambda storage, loc: storage)
-        self.dstformer.load_state_dict(checkpoint['model_pos'], strict=True)
-        
+        print(
+            "Loading checkpoint",
+            "/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/checkpoint/motionbert/FT_MB_lite_MB_ft_h36m_global_lite/best_epoch.bin",
+        )
+        checkpoint = torch.load(
+            "/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/checkpoint/motionbert/FT_MB_lite_MB_ft_h36m_global_lite/best_epoch.bin",
+            map_location=lambda storage, loc: storage,
+        )
+        self.dstformer.load_state_dict(checkpoint["model_pos"], strict=True)
+
         self.dstformer.eval()
-        
 
     def forward(self, x):
         """
@@ -44,13 +52,12 @@ class MotionBERTBackbone(nn.Module):
         return: [B, T, embed_dim]
         """
         out = self.dstformer(x)
-        
+
         assert out.dim() == 4  # [B, F, S, D]
-        
+
         # TODO: do we need an MLP here?
         # out = out.mean(dim=1)  # [B, D]
-        # # out = F.normalize(out, p=2, dim=1)
-        
+        # # out = F.normalize(out, p=2, dim=1)s
         # print('MotionBERTBackbone output shape:', out.shape)
-        
+
         return out

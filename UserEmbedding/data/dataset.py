@@ -92,6 +92,7 @@ def crop_scale(motion, scale_range=[1, 1]):
     result = np.clip(result, -1, 1)
     return result
 
+
 def parse_aist_labels_from_name(filename: str):
     """
     filename example: 'gBR_sBM_cAll_d04_mBR0_ch02'
@@ -99,9 +100,10 @@ def parse_aist_labels_from_name(filename: str):
     """
     m = re.match(r"^(g[A-Z]{2})_.*_(d\d+)_m", filename)
     assert m, f"Bad AIST++ name: {filename}"
-    genre_code = m.group(1)   # 'gBR'
+    genre_code = m.group(1)  # 'gBR'
     dancer_code = m.group(2)  # 'd04'
     return genre_code, dancer_code
+
 
 def build_label_mappings(data_path: str, splits=("train", "test")):
     """
@@ -113,7 +115,9 @@ def build_label_mappings(data_path: str, splits=("train", "test")):
     for split in splits:
         split_root = os.path.join(data_path, split)
         video_embedding_path = os.path.join(split_root, "video_embedding_sliced")
-        video_embeddings = sorted(glob.glob(os.path.join(video_embedding_path, "*.npy")))
+        video_embeddings = sorted(
+            glob.glob(os.path.join(video_embedding_path, "*.npy"))
+        )
 
         for fpath in video_embeddings:
             v_name = os.path.splitext(os.path.basename(fpath))[0]
@@ -151,7 +155,7 @@ class DanceDataset(Dataset):
         self.genre2id = {} if genre2id is None else genre2id
         self.dancer2id = {} if dancer2id is None else dancer2id
         self.fixed_label_maps = (genre2id is not None) and (dancer2id is not None)
-        
+
         pickle_name = "processed_train_data.pkl" if train else "processed_test_data.pkl"
 
         backup_path = Path(backup_path)
@@ -180,7 +184,11 @@ class DanceDataset(Dataset):
             "dancer_labels": data["dancer_labels"],
         }
 
-        assert len(data["video_embeddings"]) == len(data["pose_estimations"]) == len(data["video_masks"])
+        assert (
+            len(data["video_embeddings"])
+            == len(data["pose_estimations"])
+            == len(data["video_masks"])
+        )
         self.length = len(data["video_embeddings"])
 
     def __len__(self):
@@ -234,7 +242,7 @@ class DanceDataset(Dataset):
 
     def read_label(self, filename):
         genre_code, dancer_code = self.parse_aist_labels(filename)
-        
+
         if self.fixed_label_maps:
             # We expect these to already exist in the global mapping
             assert genre_code in self.genre2id, f"Unknown genre {genre_code}"

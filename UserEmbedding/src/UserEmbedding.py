@@ -76,7 +76,9 @@ class UserEmbedding:
         self.hparams = JsonConfig(args.hparams)
 
         ddp_kwargs = DistributedDataParallelKwargs(find_unused_parameters=True)
-        self.accelerator = Accelerator(kwargs_handlers=[ddp_kwargs], mixed_precision="bf16")
+        self.accelerator = Accelerator(
+            kwargs_handlers=[ddp_kwargs], mixed_precision="bf16"
+        )
         state = AcceleratorState()
         num_processes = state.num_processes
 
@@ -91,7 +93,7 @@ class UserEmbedding:
         #     )
 
         # DATASETS
-        
+
         print("Building global label mappings...")
         genre2id, dancer2id = build_label_mappings(args.data_path)
         print(f"Num genres:  {len(genre2id)}")
@@ -133,19 +135,47 @@ class UserEmbedding:
                 genre2id=genre2id,
                 dancer2id=dancer2id,
             )
-            
+
         # After datasets are created in __init__
-        train_dancers = torch.tensor([self.train_dataset[i][4] for i in range(len(self.train_dataset))])
-        test_dancers  = torch.tensor([self.test_dataset[i][4]  for i in range(len(self.test_dataset))])
+        train_dancers = torch.tensor(
+            [self.train_dataset[i][4] for i in range(len(self.train_dataset))]
+        )
+        test_dancers = torch.tensor(
+            [self.test_dataset[i][4] for i in range(len(self.test_dataset))]
+        )
 
-        train_genres = torch.tensor([self.train_dataset[i][3] for i in range(len(self.train_dataset))])
-        test_genres  = torch.tensor([self.test_dataset[i][3]  for i in range(len(self.test_dataset))])
+        train_genres = torch.tensor(
+            [self.train_dataset[i][3] for i in range(len(self.train_dataset))]
+        )
+        test_genres = torch.tensor(
+            [self.test_dataset[i][3] for i in range(len(self.test_dataset))]
+        )
 
-        print("Train dancer id range:", train_dancers.min().item(), "→", train_dancers.max().item())
-        print("Test  dancer id range:", test_dancers.min().item(),  "→", test_dancers.max().item())
+        print(
+            "Train dancer id range:",
+            train_dancers.min().item(),
+            "→",
+            train_dancers.max().item(),
+        )
+        print(
+            "Test  dancer id range:",
+            test_dancers.min().item(),
+            "→",
+            test_dancers.max().item(),
+        )
 
-        print("Train genre id range:", train_genres.min().item(), "→", train_genres.max().item())
-        print("Test  genre id range:", test_genres.min().item(),  "→", test_genres.max().item())
+        print(
+            "Train genre id range:",
+            train_genres.min().item(),
+            "→",
+            train_genres.max().item(),
+        )
+        print(
+            "Test  genre id range:",
+            test_genres.min().item(),
+            "→",
+            test_genres.max().item(),
+        )
 
         print("Num unique train dancers:", train_dancers.unique().numel())
         print("Num unique test dancers: ", test_dancers.unique().numel())
@@ -153,12 +183,17 @@ class UserEmbedding:
         print("Num unique train genres:", train_genres.unique().numel())
         print("Num unique test genres: ", test_genres.unique().numel())
 
-        print("Overlap dancers:", len(set(train_dancers.tolist()) & set(test_dancers.tolist())))
-        print("Overlap genres:",  len(set(train_genres.tolist())  & set(test_genres.tolist())))
-
+        print(
+            "Overlap dancers:",
+            len(set(train_dancers.tolist()) & set(test_dancers.tolist())),
+        )
+        print(
+            "Overlap genres:",
+            len(set(train_genres.tolist()) & set(test_genres.tolist())),
+        )
 
         self.motionbert = MotionBERTBackbone()
-        
+
         # TODO: add more arguments for model: hidden size, emb size, etc
         self.user_embedding_net = UserEmbeddingNet(
             self.motionbert,
@@ -219,16 +254,24 @@ class UserEmbedding:
         #     reducer=self.reducer,
         # )
         self.dancer_loss_func = losses.CrossBatchMemory(
-            losses.MultiSimilarityLoss(alpha=2, beta=50, base=0.5, distance=self.distance),
+            losses.MultiSimilarityLoss(
+                alpha=2, beta=50, base=0.5, distance=self.distance
+            ),
             embedding_size=256,
             memory_size=4096,
-            miner=miners.MultiSimilarityMiner(epsilon=0.1, distance=self.distance),  # <<—
+            miner=miners.MultiSimilarityMiner(
+                epsilon=0.1, distance=self.distance
+            ),  # <<—
         )
         self.genre_loss_func = losses.CrossBatchMemory(
-            losses.MultiSimilarityLoss(alpha=2, beta=50, base=0.5, distance=self.distance),
+            losses.MultiSimilarityLoss(
+                alpha=2, beta=50, base=0.5, distance=self.distance
+            ),
             embedding_size=256,
             memory_size=4096,
-            miner=miners.MultiSimilarityMiner(epsilon=0.1, distance=self.distance),  # <<—
+            miner=miners.MultiSimilarityMiner(
+                epsilon=0.1, distance=self.distance
+            ),  # <<—
         )
 
         # NOTE: TripletMarginMiner
@@ -290,13 +333,19 @@ class UserEmbedding:
         all_embs = []
         all_dancer_labels = []
         all_genre_labels = []
-        
+
         total_correct_dancer = 0
         total_correct_genre = 0
         total_samples = 0
 
         with torch.no_grad():
-            for video_embedding, video_mask, pose_est, genre_label, dancer_label in data_loader:
+            for (
+                video_embedding,
+                video_mask,
+                pose_est,
+                genre_label,
+                dancer_label,
+            ) in data_loader:
                 video_embedding = video_embedding.to(self.accelerator.device)
                 video_mask = video_mask.to(self.accelerator.device)
                 pose_est = pose_est.to(self.accelerator.device)
@@ -305,20 +354,24 @@ class UserEmbedding:
 
                 with self.accelerator.autocast():
                     if is_train_dataloader:
-                        embs, _, _ = self.user_embedding_net(video_embedding, video_mask, pose_est)
+                        embs, _, _ = self.user_embedding_net(
+                            video_embedding, video_mask, pose_est
+                        )
                     else:
-                        embs, dancer_logits, genre_logits = self.user_embedding_net(video_embedding, video_mask, pose_est)
+                        embs, dancer_logits, genre_logits = self.user_embedding_net(
+                            video_embedding, video_mask, pose_est
+                        )
                         # print("Dancer logits:", dancer_logits)
                         # print("Genre logits:", genre_logits)
 
                 all_embs.append(embs.cpu())
                 all_dancer_labels.append(dancer_label.cpu())
                 all_genre_labels.append(genre_label.cpu())
-                
+
                 if not is_train_dataloader:
                     dancer_pred = dancer_logits.argmax(dim=1)
                     genre_pred = genre_logits.argmax(dim=1)
-                    
+
                     # print("Dancer pred:", dancer_pred)
                     # print("Dancer label:", dancer_label)
                     # print("Genre pred:", genre_pred)
@@ -337,15 +390,15 @@ class UserEmbedding:
         all_embs = self.accelerator.gather_for_metrics(all_embs)
         all_dancer_labels = self.accelerator.gather_for_metrics(all_dancer_labels)
         all_genre_labels = self.accelerator.gather_for_metrics(all_genre_labels)
-        
+
         if is_train_dataloader:
             return all_embs, all_dancer_labels, all_genre_labels
-        
+
         else:
             total_correct_dancer = torch.tensor(
-            total_correct_dancer,
-            device=self.accelerator.device,
-            dtype=torch.long,
+                total_correct_dancer,
+                device=self.accelerator.device,
+                dtype=torch.long,
             )
             total_correct_genre = torch.tensor(
                 total_correct_genre,
@@ -359,8 +412,12 @@ class UserEmbedding:
             )
 
             # gather from all processes
-            total_correct_dancer_all = self.accelerator.gather_for_metrics(total_correct_dancer)
-            total_correct_genre_all = self.accelerator.gather_for_metrics(total_correct_genre)
+            total_correct_dancer_all = self.accelerator.gather_for_metrics(
+                total_correct_dancer
+            )
+            total_correct_genre_all = self.accelerator.gather_for_metrics(
+                total_correct_genre
+            )
             total_samples_all = self.accelerator.gather_for_metrics(total_samples)
 
             dancer_acc = (
@@ -369,7 +426,7 @@ class UserEmbedding:
             genre_acc = (
                 total_correct_genre_all.sum().float() / total_samples_all.sum().float()
             ).item()
-            
+
             return all_embs, all_dancer_labels, all_genre_labels, dancer_acc, genre_acc
 
     def run_evaluation(self):
@@ -400,10 +457,16 @@ class UserEmbedding:
         )
 
         # extract embeddings
-        train_embs, train_dancer, train_genre, dancer_cls_train_acc, genre_cls_train_acc = self._extract_embeddings(
-            train_data_loader, is_train_dataloader=False
+        (
+            train_embs,
+            train_dancer,
+            train_genre,
+            dancer_cls_train_acc,
+            genre_cls_train_acc,
+        ) = self._extract_embeddings(train_data_loader, is_train_dataloader=False)
+        test_embs, test_dancer, test_genre, dancer_cls_acc, genre_cls_acc = (
+            self._extract_embeddings(test_data_loader, is_train_dataloader=False)
         )
-        test_embs, test_dancer, test_genre, dancer_cls_acc, genre_cls_acc = self._extract_embeddings(test_data_loader, is_train_dataloader=False)
 
         # to numpy
         train_embs_np = train_embs.cpu().numpy()
@@ -450,28 +513,12 @@ class UserEmbedding:
                 genre_acc["mean_average_precision_at_r"],
             )
         )
-        
-        print(
-            "[Eval] DANCER_CLS | acc: {:.4f}".format(
-                dancer_cls_acc
-            )
-        )
-        print(
-            "[Eval] GENRE_CLS  | acc: {:.4f}".format(
-                genre_cls_acc
-            )
-        )
-        
-        print(
-            "[Train] DANCER_CLS | acc: {:.4f}".format(
-                dancer_cls_train_acc
-            )
-        )
-        print(
-            "[Train] GENRE_CLS  | acc: {:.4f}".format(
-                genre_cls_train_acc
-            )
-        )
+
+        print("[Eval] DANCER_CLS | acc: {:.4f}".format(dancer_cls_acc))
+        print("[Eval] GENRE_CLS  | acc: {:.4f}".format(genre_cls_acc))
+
+        print("[Train] DANCER_CLS | acc: {:.4f}".format(dancer_cls_train_acc))
+        print("[Train] GENRE_CLS  | acc: {:.4f}".format(genre_cls_train_acc))
 
         # TensorBoard logging
         if hasattr(self, "writer"):
@@ -498,11 +545,11 @@ class UserEmbedding:
                 genre_acc["mean_average_precision_at_r"],
                 self.global_step,
             )
-            
+
             self.writer.add_scalar(
                 "eval/test_dancer_cls_acc", dancer_cls_acc, self.global_step
             )
-            
+
             self.writer.add_scalar(
                 "eval/test_genre_cls_acc", genre_cls_acc, self.global_step
             )
@@ -521,15 +568,12 @@ class UserEmbedding:
         print("Creating data loaders...")
 
         all_dancer_labels = torch.tensor(
-            [
-                self.train_dataset[i][4]
-                for i in range(len(self.train_dataset))
-            ]
+            [self.train_dataset[i][4] for i in range(len(self.train_dataset))]
         )
-        
+
         print("Dancer labels:", all_dancer_labels)
-        
-        #TODO: K ở đây là số sample mỗi class, batch size = P * K (P là số class trong batch)
+
+        # TODO: K ở đây là số sample mỗi class, batch size = P * K (P là số class trong batch)
         K = 8
         sampler = MPerClassSampler(
             labels=all_dancer_labels, m=K, length_before_new_iter=len(all_dancer_labels)
@@ -564,21 +608,20 @@ class UserEmbedding:
             else lambda x: x
         )
 
-
         s_epoch = int(self.global_step / len(train_data_loader))
-        
+
         self.user_embedding_net.train()
 
         last_time = datetime.datetime.now()
         self.accelerator.wait_for_everyone()
         for i_epoch in range(s_epoch, self.hparams.Train.epochs):
-            
+
             avg_dancer_loss = 0.0
             avg_genre_loss = 0.0
             avg_total_loss = 0.0
-            
+
             self.user_embedding_net.train()
-            
+
             for batch_idx, (
                 video_embedding,
                 video_mask,
@@ -607,14 +650,10 @@ class UserEmbedding:
                 # loss_genre = self.genre_loss_func(
                 #     embeddings, genre_label, indices_tuple=triplets_g
                 # )
-                
-                loss_dancer = self.dancer_loss_func(
-                    embeddings, dancer_label
-                )
-                loss_genre = self.genre_loss_func(
-                    embeddings, genre_label
-                )
-                
+
+                loss_dancer = self.dancer_loss_func(embeddings, dancer_label)
+                loss_genre = self.genre_loss_func(embeddings, genre_label)
+
                 # loss = self.lambda_dancer * loss_dancer + self.lambda_genre * loss_genre
 
                 # if self.use_triplet_reg:
@@ -636,24 +675,22 @@ class UserEmbedding:
                 # combine (example weights)
                 lambda_d_ml = self.lambda_dancer
                 lambda_g_ml = self.lambda_genre
-                lambda_d_ce = getattr(self, "lambda_d_ce", 1.0)
-                lambda_g_ce = getattr(self, "lambda_g_ce", 0.5)
+                lambda_d_ce = getattr(self, "lambda_d_ce", 2.0)
+                lambda_g_ce = getattr(self, "lambda_g_ce", 2.0)
 
-                # loss = (
-                #     lambda_d_ml * loss_dancer
-                #     + lambda_g_ml * loss_genre
-                #     + lambda_d_ce * loss_dancer_ce
-                #     + lambda_g_ce * loss_genre_ce
-                # )
+                loss = (
+                    lambda_d_ml * loss_dancer
+                    + lambda_g_ml * loss_genre
+                    + lambda_d_ce * loss_dancer_ce
+                    + lambda_g_ce * loss_genre_ce
+                )
 
-                # # optional hierarchical triplet regularizer
-                # if self.use_triplet_reg:
-                #     T1, T2 = build_hierarchical_triplets(dancer_label, genre_label)
-                #     L1 = self.triplet_reg(embeddings, dancer_label, indices_tuple=T1)
-                #     L2 = self.triplet_reg(embeddings, genre_label, indices_tuple=T2)
-                #     loss = loss + self.mu_triplet * (L1 + 0.5 * L2)
-                
-                loss = loss_genre_ce + loss_dancer_ce
+                # optional hierarchical triplet regularizer
+                if self.use_triplet_reg:
+                    T1, T2 = build_hierarchical_triplets(dancer_label, genre_label)
+                    L1 = self.triplet_reg(embeddings, dancer_label, indices_tuple=T1)
+                    L2 = self.triplet_reg(embeddings, genre_label, indices_tuple=T2)
+                    loss = loss + self.mu_triplet * (L1 + 0.5 * L2)
 
                 self.optimizer.zero_grad()
                 self.accelerator.backward(loss)
@@ -663,13 +700,13 @@ class UserEmbedding:
                     avg_dancer_loss += loss_dancer.item()
                     avg_genre_loss += loss_genre.item()
                     avg_total_loss += loss.item()
-                    
+
                 self.global_step += 1
-            
+
             # self.scheduler.step()
 
             if i_epoch % self.print_every == self.print_every - 1:
-                
+
                 self.accelerator.wait_for_everyone()
                 # save only if on main thread
                 if self.accelerator.is_main_process:
@@ -711,7 +748,7 @@ class UserEmbedding:
                         self.optimizer.param_groups[0]["lr"],
                         self.global_step,
                     )
-                    
+
                     avg_dancer_loss = 0.0
                     avg_genre_loss = 0.0
                     avg_total_loss = 0.0
@@ -722,9 +759,7 @@ class UserEmbedding:
                 or self.global_step >= self.max_iters
             ):
                 if self.accelerator.is_main_process:
-                    save_path = os.path.join(
-                        self.log_dir, f"ckp_{self.global_step}.pt"
-                    )
+                    save_path = os.path.join(self.log_dir, f"ckp_{self.global_step}.pt")
                     ckp = {
                         "model": self.accelerator.get_state_dict(
                             self.user_embedding_net
@@ -736,7 +771,10 @@ class UserEmbedding:
                     print(f"Saved checkpoint at step {self.global_step}")
 
             # Evaluate
-            if i_epoch % self.eval_every == self.eval_every - 1 or self.global_step >= self.max_iters:
+            if (
+                i_epoch % self.eval_every == self.eval_every - 1
+                or self.global_step >= self.max_iters
+            ):
                 self.accelerator.wait_for_everyone()
                 # save only if on main thread
                 if self.accelerator.is_main_process:
@@ -749,7 +787,7 @@ class UserEmbedding:
                         self.global_step,
                     )
                     os.system(f"cp {self.log_dir}/events* {self.log_folder_runs}")
-                
+
             if self.global_step >= self.max_iters:
                 print("Exit program!")
                 break
