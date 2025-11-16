@@ -323,8 +323,10 @@ class UserEmbeddingNet(nn.Module):
         )
 
         # 6) classification heads
-        self.dancer_predictor = MLP(d_embed, 512, num_dancer_class, 3)
-        self.genre_predictor = MLP(d_embed, 512, num_genre_class, 3)
+        # self.dancer_predictor = MLP(d_embed, 512, num_dancer_class, 3)
+        # self.genre_predictor = MLP(d_embed, 512, num_genre_class, 3)
+        self.dancer_predictor = nn.Linear(256, num_dancer_class)
+        self.genre_predictor = nn.Linear(256, num_genre_class)
 
     def forward(
         self,

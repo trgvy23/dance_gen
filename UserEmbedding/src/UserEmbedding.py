@@ -572,7 +572,7 @@ class UserEmbedding:
         last_time = datetime.datetime.now()
         self.accelerator.wait_for_everyone()
         for i_epoch in range(s_epoch, self.hparams.Train.epochs):
-            self.scheduler.step()
+            
             avg_dancer_loss = 0.0
             avg_genre_loss = 0.0
             avg_total_loss = 0.0
@@ -652,7 +652,7 @@ class UserEmbedding:
                 #     L1 = self.triplet_reg(embeddings, dancer_label, indices_tuple=T1)
                 #     L2 = self.triplet_reg(embeddings, genre_label, indices_tuple=T2)
                 #     loss = loss + self.mu_triplet * (L1 + 0.5 * L2)
-                    
+                
                 loss = loss_dancer_ce + loss_genre_ce
 
                 self.optimizer.zero_grad()
@@ -665,6 +665,8 @@ class UserEmbedding:
                     avg_total_loss += loss.item()
                     
                 self.global_step += 1
+            
+            self.scheduler.step()
 
             if i_epoch % self.print_every == self.print_every - 1:
                 
