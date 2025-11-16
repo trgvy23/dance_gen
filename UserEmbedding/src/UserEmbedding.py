@@ -308,6 +308,8 @@ class UserEmbedding:
                         embs, _, _ = self.user_embedding_net(video_embedding, video_mask, pose_est)
                     else:
                         embs, dancer_logits, genre_logits = self.user_embedding_net(video_embedding, video_mask, pose_est)
+                        print("Dancer logits:", dancer_logits)
+                        print("Genre logits:", genre_logits)
 
                 all_embs.append(embs.cpu())
                 all_dancer_labels.append(dancer_label.cpu())
@@ -316,6 +318,11 @@ class UserEmbedding:
                 if not is_train_dataloader:
                     dancer_pred = dancer_logits.argmax(dim=1)
                     genre_pred = genre_logits.argmax(dim=1)
+                    
+                    print("Dancer pred:", dancer_pred)
+                    print("Dancer label:", dancer_label)
+                    print("Genre pred:", genre_pred)
+                    print("Genre label:", genre_label)
 
                     total_correct_dancer += (dancer_pred == dancer_label).sum().item()
                     total_correct_genre += (genre_pred == genre_label).sum().item()
