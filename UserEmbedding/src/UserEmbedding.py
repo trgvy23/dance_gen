@@ -159,10 +159,6 @@ class UserEmbedding:
 
         self.motionbert = MotionBERTBackbone()
         
-        self.motionbert.eval()
-        for p in self.motionbert.parameters():
-            p.requires_grad_(False)
-        
         # TODO: add more arguments for model: hidden size, emb size, etc
         self.user_embedding_net = UserEmbeddingNet(
             self.motionbert,

@@ -27,15 +27,15 @@ class MotionBERTBackbone(nn.Module):
         )
         
         #TODO: load pretrained MotionBERT weights
-        # if torch.cuda.is_available():
-        #     self.motionbert_backbone = nn.DataParallel(self.motionbert_backbone)
-        #     self.motionbert_backbone = self.motionbert_backbone.cuda()
+        if torch.cuda.is_available():
+            self.dstformer = nn.DataParallel(self.dstformer)
+            self.dstformer = self.dstformer.cuda()
 
-        # print('Loading checkpoint', args.motionbert_checkpoint)
-        # checkpoint = torch.load(args.motionbert_checkpoint, map_location=lambda storage, loc: storage)
-        # self.motionbert_backbone.load_state_dict(checkpoint['model_pos'], strict=True)
+        print('Loading checkpoint', "/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/checkpoint/motionbert/FT_MB_lite_MB_ft_h36m_global_lite/best_epoch.bin")
+        checkpoint = torch.load("/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/checkpoint/motionbert/FT_MB_lite_MB_ft_h36m_global_lite/best_epoch.bin", map_location=lambda storage, loc: storage)
+        self.dstformer.load_state_dict(checkpoint['model_pos'], strict=True)
         
-        self.dstformer.requires_grad_(False)
+        self.dstformer.eval()
         
 
     def forward(self, x):
