@@ -10,10 +10,10 @@
 		],
         "lr_steps": [50, 100],
         "max_iters": 1000,
-        "print_every": 100,
-        "checkpoint_every": 100,
+        "print_every": 2,
+        "checkpoint_every": 2,
         "max_checkpoints": 5,
-		"evaluate_every": 5
+		"evaluate_every": 2
     },
     "Model":  {
         "checkpoint": ""

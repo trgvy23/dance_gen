@@ -405,11 +405,6 @@ class UserEmbedding:
         )
         test_embs, test_dancer, test_genre, dancer_cls_acc, genre_cls_acc = self._extract_embeddings(test_data_loader, is_train_dataloader=False)
 
-        if not self.accelerator.is_main_process:
-            # only main process prints/logs
-            self.user_embedding_net.train()
-            return
-
         # to numpy
         train_embs_np = train_embs.cpu().numpy()
         test_embs_np = test_embs.cpu().numpy()
@@ -512,8 +507,6 @@ class UserEmbedding:
                 "eval/test_genre_cls_acc", genre_cls_acc, self.global_step
             )
 
-        self.user_embedding_net.train()
-
     def prepare(self, objects):
         return self.accelerator.prepare(*objects)
 
@@ -571,18 +564,20 @@ class UserEmbedding:
             else lambda x: x
         )
 
-        self.accelerator.wait_for_everyone()
 
         s_epoch = int(self.global_step / len(train_data_loader))
         
         self.user_embedding_net.train()
 
         last_time = datetime.datetime.now()
+        self.accelerator.wait_for_everyone()
         for i_epoch in range(s_epoch, self.hparams.Train.epochs):
             self.scheduler.step()
             avg_dancer_loss = 0.0
             avg_genre_loss = 0.0
             avg_total_loss = 0.0
+            
+            self.user_embedding_net.train()
             
             for batch_idx, (
                 video_embedding,
@@ -666,8 +661,15 @@ class UserEmbedding:
                     avg_dancer_loss += loss_dancer.item()
                     avg_genre_loss += loss_genre.item()
                     avg_total_loss += loss.item()
+                    
+                self.global_step += 1
 
-                if self.global_step % self.print_every == self.print_every - 1:
+            if i_epoch % self.print_every == self.print_every - 1:
+                
+                self.accelerator.wait_for_everyone()
+                # save only if on main thread
+                if self.accelerator.is_main_process:
+                    self.user_embedding_net.eval()
                     avg_dancer_loss /= self.print_every
                     avg_genre_loss /= self.print_every
                     avg_total_loss /= self.print_every
@@ -680,7 +682,7 @@ class UserEmbedding:
                     )
                     last_time = time
                     time = str(time)
-                    log_msg = "[{}], eta: {}, iter: {}, progress: {:.2f}%, epoch: {}, dancer loss: {:.4f}, , genre loss: {:.4f}, total loss: {:.4f}".format(
+                    log_msg = "[{}], eta: {}, iter: {}, progress: {:.2f}%, epoch: {}, dancer loss: {:.4f}, genre loss: {:.4f}, total loss: {:.4f}".format(
                         time[time.rfind(" ") + 1 : time.rfind(".")],
                         eta[: eta.rfind(".")],
                         self.global_step,
@@ -710,27 +712,31 @@ class UserEmbedding:
                     avg_genre_loss = 0.0
                     avg_total_loss = 0.0
 
-                # save checkpoint
-                if (
-                    self.global_step % self.save_every == self.save_every - 1
-                    or self.global_step >= self.max_iters
-                ):
-                    if self.accelerator.is_main_process:
-                        save_path = os.path.join(
-                            self.log_dir, f"ckp_{self.global_step}.pt"
-                        )
-                        ckp = {
-                            "model": self.accelerator.get_state_dict(
-                                self.user_embedding_net
-                            ),
-                            "optimizer": self.optimizer.state_dict(),
-                            "step": self.global_step + 1,
-                        }
-                        torch.save(ckp, save_path)
-                        print(f"Saved checkpoint at step {self.global_step}")
+            # save checkpoint
+            if (
+                i_epoch % self.save_every == self.save_every - 1
+                or self.global_step >= self.max_iters
+            ):
+                if self.accelerator.is_main_process:
+                    save_path = os.path.join(
+                        self.log_dir, f"ckp_{self.global_step}.pt"
+                    )
+                    ckp = {
+                        "model": self.accelerator.get_state_dict(
+                            self.user_embedding_net
+                        ),
+                        "optimizer": self.optimizer.state_dict(),
+                        "step": self.global_step + 1,
+                    }
+                    torch.save(ckp, save_path)
+                    print(f"Saved checkpoint at step {self.global_step}")
 
-                # Evaluate
-                if self.global_step % self.eval_every == self.eval_every - 1 or self.global_step >= self.max_iters:
+            # Evaluate
+            if i_epoch % self.eval_every == self.eval_every - 1 or self.global_step >= self.max_iters:
+                self.accelerator.wait_for_everyone()
+                # save only if on main thread
+                if self.accelerator.is_main_process:
+                    self.user_embedding_net.eval()
                     self.run_evaluation()
 
                     self.writer.add_scalar(
@@ -739,11 +745,6 @@ class UserEmbedding:
                         self.global_step,
                     )
                     os.system(f"cp {self.log_dir}/events* {self.log_folder_runs}")
-                
-                self.global_step += 1
-                if self.global_step >= self.max_iters:
-                    print("Exit program!")
-                    break
                 
             if self.global_step >= self.max_iters:
                 print("Exit program!")
