@@ -167,12 +167,12 @@ class UserEmbedding:
         )
 
         self.optimizer = optim.AdamW(
-            self.user_embedding_net.parameters(), weight_decay=0.01
+            self.user_embedding_net.parameters(), lr=3e-4, weight_decay=0.01
         )
 
-        self.scheduler = torch.optim.lr_scheduler.MultiStepLR(
-            self.optimizer, milestones=self.hparams.Train.lr_steps, gamma=0.1
-        )
+        # self.scheduler = torch.optim.lr_scheduler.MultiStepLR(
+        #     self.optimizer, milestones=self.hparams.Train.lr_steps, gamma=0.1
+        # )
 
         ### LOAD CHECKPOINT IF ANY ###
 
@@ -653,7 +653,7 @@ class UserEmbedding:
                 #     L2 = self.triplet_reg(embeddings, genre_label, indices_tuple=T2)
                 #     loss = loss + self.mu_triplet * (L1 + 0.5 * L2)
                 
-                loss = loss_dancer_ce + loss_genre_ce
+                loss = loss_genre_ce + loss_dancer_ce
 
                 self.optimizer.zero_grad()
                 self.accelerator.backward(loss)
@@ -666,7 +666,7 @@ class UserEmbedding:
                     
                 self.global_step += 1
             
-            self.scheduler.step()
+            # self.scheduler.step()
 
             if i_epoch % self.print_every == self.print_every - 1:
                 
