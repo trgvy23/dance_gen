@@ -639,19 +639,21 @@ class UserEmbedding:
                 lambda_d_ce = getattr(self, "lambda_d_ce", 1.0)
                 lambda_g_ce = getattr(self, "lambda_g_ce", 0.5)
 
-                loss = (
-                    lambda_d_ml * loss_dancer
-                    + lambda_g_ml * loss_genre
-                    + lambda_d_ce * loss_dancer_ce
-                    + lambda_g_ce * loss_genre_ce
-                )
+                # loss = (
+                #     lambda_d_ml * loss_dancer
+                #     + lambda_g_ml * loss_genre
+                #     + lambda_d_ce * loss_dancer_ce
+                #     + lambda_g_ce * loss_genre_ce
+                # )
 
-                # optional hierarchical triplet regularizer
-                if self.use_triplet_reg:
-                    T1, T2 = build_hierarchical_triplets(dancer_label, genre_label)
-                    L1 = self.triplet_reg(embeddings, dancer_label, indices_tuple=T1)
-                    L2 = self.triplet_reg(embeddings, genre_label, indices_tuple=T2)
-                    loss = loss + self.mu_triplet * (L1 + 0.5 * L2)
+                # # optional hierarchical triplet regularizer
+                # if self.use_triplet_reg:
+                #     T1, T2 = build_hierarchical_triplets(dancer_label, genre_label)
+                #     L1 = self.triplet_reg(embeddings, dancer_label, indices_tuple=T1)
+                #     L2 = self.triplet_reg(embeddings, genre_label, indices_tuple=T2)
+                #     loss = loss + self.mu_triplet * (L1 + 0.5 * L2)
+                    
+                loss = loss_dancer_ce + loss_genre_ce
 
                 self.optimizer.zero_grad()
                 self.accelerator.backward(loss)
