@@ -9,7 +9,7 @@
 			0.999
 		],
         "lr_steps": [50, 100],
-        "max_iters": 3000,
+        "max_iters": 10000,
         "print_every": 10,
         "checkpoint_every": 20,
         "max_checkpoints": 10,
