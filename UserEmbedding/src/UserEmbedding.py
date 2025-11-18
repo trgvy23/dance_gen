@@ -298,6 +298,7 @@ class UserEmbedding:
 
         self.use_triplet_reg = getattr(args, "use_triplet_reg", False)
         if self.use_triplet_reg:
+            print("Using hierarchical triplet regularization")
             self.triplet_reg = losses.TripletMarginLoss(
                 margin=0.2, distance=self.distance
             )
@@ -675,8 +676,8 @@ class UserEmbedding:
                 # combine (example weights)
                 lambda_d_ml = self.lambda_dancer
                 lambda_g_ml = self.lambda_genre
-                lambda_d_ce = getattr(self, "lambda_d_ce", 2.0)
-                lambda_g_ce = getattr(self, "lambda_g_ce", 2.0)
+                lambda_d_ce = getattr(self, "lambda_d_ce", 1.0)
+                lambda_g_ce = getattr(self, "lambda_g_ce", 0.5)
 
                 loss = (
                     lambda_d_ml * loss_dancer
