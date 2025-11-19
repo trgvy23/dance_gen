@@ -1,4 +1,4 @@
 from src.backbone import MotionBERTBackbone
 from src.models import UserEmbeddingNet
-from src.UserEmbedding import UserEmbedding
+from dance_gen.UserEmbedding.src.UserEmbedding_with_genre import UserEmbedding
 from src.rotary_embedding import RotaryEmbedding

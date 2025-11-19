@@ -1,5 +1,5 @@
 from args import parse_train_opt
-from src.UserEmbedding import UserEmbedding
+from dance_gen.UserEmbedding.src.UserEmbedding_with_genre import UserEmbedding
 
 
 def train(args):
