@@ -273,9 +273,8 @@ class UserEmbeddingNet(nn.Module):
 
         # 2) project to common model dim
         self.pose_proj = nn.Linear(d_pose_raw, d_model)
-        self.video_proj = nn.Linear(d_video_in, d_model)
-
-        self.mask_backbone = MaskBackbone(d_out=d_model)
+        # self.video_proj = nn.Linear(d_video_in, d_model)
+        # self.mask_backbone = MaskBackbone(d_out=d_model)
 
         # 3) temporal encoders
         self.pose_encoder = TemporalSelfAttention(
@@ -285,34 +284,34 @@ class UserEmbeddingNet(nn.Module):
             p_drop=p_drop,
             use_rotary=True,
         )
-        self.video_encoder = TemporalSelfAttention(
-            d_model=d_model,
-            n_heads=n_heads,
-            n_layers=2,
-            p_drop=p_drop,
-            use_rotary=True,
-        )
-        self.mask_encoder = TemporalSelfAttention(
-            d_model=d_model,
-            n_heads=n_heads,
-            n_layers=2,
-            p_drop=p_drop,
-            use_rotary=True,
-        )
+        # self.video_encoder = TemporalSelfAttention(
+        #     d_model=d_model,
+        #     n_heads=n_heads,
+        #     n_layers=2,
+        #     p_drop=p_drop,
+        #     use_rotary=True,
+        # )
+        # self.mask_encoder = TemporalSelfAttention(
+        #     d_model=d_model,
+        #     n_heads=n_heads,
+        #     n_layers=2,
+        #     p_drop=p_drop,
+        #     use_rotary=True,
+        # )
 
-        # 4) cross-attention: pose (Q) ← video (K,V)
-        self.cross_attn_video = CrossAttentionBlock(
-            d_model=d_model,
-            n_heads=n_heads,
-            p_drop=p_drop,
-            use_rotary=True,
-        )
-        self.cross_attn_mask = CrossAttentionBlock(
-            d_model=d_model,
-            n_heads=n_heads,
-            p_drop=p_drop,
-            use_rotary=True,
-        )
+        # # 4) cross-attention: pose (Q) ← video (K,V)
+        # self.cross_attn_video = CrossAttentionBlock(
+        #     d_model=d_model,
+        #     n_heads=n_heads,
+        #     p_drop=p_drop,
+        #     use_rotary=True,
+        # )
+        # self.cross_attn_mask = CrossAttentionBlock(
+        #     d_model=d_model,
+        #     n_heads=n_heads,
+        #     p_drop=p_drop,
+        #     use_rotary=True,
+        # )
 
         # 5) temporal attention pooling over pose timeline + MLP
         self.pool_head = TemporalAttentionPoolingHead(
@@ -342,35 +341,40 @@ class UserEmbeddingNet(nn.Module):
         pose_feat = self.pose_proj(pose_feat)  # [B, T_p, D]
         pose_feat = self.pose_encoder(pose_feat, pad_mask=pose_pad_mask)  # [B, T_p, D]
 
-        # ---- Video branch ----
-        video_feat = self.video_proj(video_feat)  # [B, T_v, D]
-        video_feat = self.video_encoder(
-            video_feat, pad_mask=video_pad_mask
-        )  # [B, T_v, D]
+        # # ---- Video branch ----
+        # video_feat = self.video_proj(video_feat)  # [B, T_v, D]
+        # video_feat = self.video_encoder(
+        #     video_feat, pad_mask=video_pad_mask
+        # )  # [B, T_v, D]
 
-        # ---- Mask branch ----
-        mask_feat = self.mask_backbone(video_mask)  # [B, T_v, D]
-        mask_feat = self.mask_encoder(mask_feat)
+        # # ---- Mask branch ----
+        # mask_feat = self.mask_backbone(video_mask)  # [B, T_v, D]
+        # mask_feat = self.mask_encoder(mask_feat)
 
-        # ---- Cross-attention: pose (Q) attends to video (V) ----
-        fused_from_video = self.cross_attn_video(
-            q=pose_feat,
-            k=video_feat,
-            v=video_feat,
-        )  # [B, T_p, D]
+        # # ---- Cross-attention: pose (Q) attends to video (V) ----
+        # fused_from_video = self.cross_attn_video(
+        #     q=pose_feat,
+        #     k=video_feat,
+        #     v=video_feat,
+        # )  # [B, T_p, D]
 
-        # ---- Cross-attention: pose (Q) attends to mask (M) ----
-        fused_from_mask = self.cross_attn_mask(
-            q=pose_feat,
-            k=mask_feat,
-            v=mask_feat,
-        )
+        # # ---- Cross-attention: pose (Q) attends to mask (M) ----
+        # fused_from_mask = self.cross_attn_mask(
+        #     q=pose_feat,
+        #     k=mask_feat,
+        #     v=mask_feat,
+        # )
 
-        fused_pose = fused_from_video + fused_from_mask
+        # fused_pose = fused_from_video + fused_from_mask
 
-        # ---- Temporal attention pooling over pose timeline ----
+        # # ---- Temporal attention pooling over pose timeline ----
+        # embeddings = self.pool_head(
+        #     fused_pose,
+        #     pad_mask=pose_pad_mask,
+        # )  # [B, 256]
+        
         embeddings = self.pool_head(
-            fused_pose,
+            pose_feat,
             pad_mask=pose_pad_mask,
         )  # [B, 256]
 
