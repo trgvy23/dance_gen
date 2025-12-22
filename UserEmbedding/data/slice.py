@@ -11,6 +11,7 @@ from extraction_features.video_masks_features import get_video_masks_features
 import torch
 import mediapy
 import pickle
+import shutil
 
 from decord import VideoReader, cpu
 import jax
@@ -31,23 +32,33 @@ import soundfile as sf
 ORIGINAL_FPS = 60  # original fps of videos in dataset
 VIDEO_WIDTH = 288
 VIDEO_HEIGHT = 288
-VIDEOPRISM_MODEL_NAME = 'videoprism_public_v1_base'
+VIDEOPRISM_MODEL_NAME = "videoprism_public_v1_base"
+
 
 def ensure_dir(p: str) -> None:
-    os.makedirs(p, exist_ok=True)
-    
+    if os.path.exists(p):
+        # Xóa toàn bộ nội dung bên trong directory
+        for name in os.listdir(p):
+            path = os.path.join(p, name)
+            if os.path.isfile(path) or os.path.islink(path):
+                os.remove(path)
+            else:
+                shutil.rmtree(path)
+    else:
+        os.makedirs(p, exist_ok=True)
+
+
 def build_segmentation_model(device: str = "cuda"):
     weights = DeepLabV3_ResNet101_Weights.DEFAULT
     model = deeplabv3_resnet101(weights=weights).to(device)
     model.eval()
 
     preprocess = weights.transforms()
-    class_to_idx = {
-        cls: idx for (idx, cls) in enumerate(weights.meta["categories"])
-    }
-    person_idx = class_to_idx["person"]   # human class
+    class_to_idx = {cls: idx for (idx, cls) in enumerate(weights.meta["categories"])}
+    person_idx = class_to_idx["person"]  # human class
 
     return model, preprocess, person_idx
+
 
 def slice_audio(
     audio_file,
@@ -100,6 +111,7 @@ def slice_audio(
     print(expected_length)
     return idx
 
+
 def slice_video_masks(
     video_path: str,
     length_frames: int,
@@ -111,7 +123,10 @@ def slice_video_masks(
     seg_batch: int = 16,
     mask_latent_size: Tuple[int, int] = (64, 64),
     device: str = "cpu",
-    mask_reader_size: Optional[Tuple[int, int]] = (512, 512),  # e.g. (720, 1280) or None for original
+    mask_reader_size: Optional[Tuple[int, int]] = (
+        512,
+        512,
+    ),  # e.g. (720, 1280) or None for original
 ) -> int:
     """
     Runs segmentation in mini-batches for each slice and saves [T, h_latent, w_latent] masks.
@@ -135,18 +150,24 @@ def slice_video_masks(
     with torch.no_grad():
         print(f"Slicing video mask {idx} from frame {start}...")
         inds = list(range(T))
-        frames = vr.get_batch(inds).asnumpy()              # [T,H,W,3] uint8
+        frames = vr.get_batch(inds).asnumpy()  # [T,H,W,3] uint8
         T_slice = frames.shape[0]
-        masks = get_video_masks_features(                    # [T,64,64]
-            frames, T_slice,
-            seg_preprocess, person_idx,
-            seg_batch, seg_model,
-            mask_latent_size, device
+        masks = get_video_masks_features(  # [T,64,64]
+            frames,
+            T_slice,
+            seg_preprocess,
+            person_idx,
+            seg_batch,
+            seg_model,
+            mask_latent_size,
+            device,
         )
         if masks.shape != torch.Size([length_frames, 64, 64]):
             cur = masks.shape[0]
             pad_len = length_frames - cur
-            padding = torch.zeros(pad_len, 64, 64, device=masks.device, dtype=masks.dtype)
+            padding = torch.zeros(
+                pad_len, 64, 64, device=masks.device, dtype=masks.dtype
+            )
             masks = torch.cat([masks, padding], dim=0)
         np.save(
             os.path.join(mask_output_dir, f"{basename}_slice{idx}.npy"),
@@ -157,6 +178,7 @@ def slice_video_masks(
         idx += 1
 
     return idx
+
 
 def slice_video(
     video_path: str,
@@ -262,8 +284,10 @@ def slice_video(
 
     return segment_count
 
-#TODO: add get video feature for each video segment
-#TODO: add get video mask for each video segment
+
+# TODO: add get video feature for each video segment
+# TODO: add get video mask for each video segment
+
 
 def slice_motion_estimation(
     pose_path: str, length_frames: int, step: int, output_dir: str
@@ -281,7 +305,7 @@ def slice_motion_estimation(
     slice_length = step * length_frames
     padding_keypoints = [0] * 78
     padding_keypoints = {
-        'keypoints': padding_keypoints,
+        "keypoints": padding_keypoints,
     }
     while start < T:
         print(f"Slicing motion estimation {idx} from frame {start}...")
@@ -296,8 +320,9 @@ def slice_motion_estimation(
             json.dump(slice_ests, write_file)
         start += slice_length
         idx += 1
-        
+
     return idx
+
 
 def slice_motion(
     motion_path: str,
@@ -308,7 +333,7 @@ def slice_motion(
 ):
     with open(motion_path, "rb") as motion_pkl:
         motion_data = pickle.load(motion_pkl)
-    T = len(motion_data['smpl_poses'])
+    T = len(motion_data["smpl_poses"])
 
     # print(f"Slicing motion {motion_path}...")
     # step = ORIGINAL_FPS // fps if fps is not None else 1
@@ -325,7 +350,7 @@ def slice_motion(
         sliced_motion = dict.fromkeys(keys)
         # print(f"Slicing motion {idx} from frame {start}...")
         for key in motion_data.keys():
-            if key == 'smpl_loss':
+            if key == "smpl_loss":
                 sliced_motion[key] = 0.0
             elif key == "smpl_scaling":
                 sliced_motion[key] = motion_data[key]
@@ -337,13 +362,18 @@ def slice_motion(
                 #     type(data_stride), data_stride
                 # )
 
-                sliced_motion[key] = motion_data[key][start : min(start + slice_length, T) : data_stride]
+                sliced_motion[key] = motion_data[key][
+                    start : min(start + slice_length, T) : data_stride
+                ]
                 # print(f"Length of sliced motion at key {key}: {len(sliced_motion[key])}")
                 if len(sliced_motion[key]) < length_frames:
                     cur = len(sliced_motion[key])
                     pad_len = length_frames - cur
                     if isinstance(motion_data[key], np.ndarray):
-                        padding = np.zeros((pad_len, ) + motion_data[key].shape[1:], dtype=motion_data[key].dtype)
+                        padding = np.zeros(
+                            (pad_len,) + motion_data[key].shape[1:],
+                            dtype=motion_data[key].dtype,
+                        )
                         sliced_motion[key] = np.vstack([sliced_motion[key], padding])
                     else:
                         padding = [0] * pad_len
@@ -367,6 +397,7 @@ def slice_motion(
     # print(f"Motion content: {motion_data}")
     return idx
 
+
 def slice_dataset(
     video_dir,
     pose_estimation_dir,
@@ -386,16 +417,16 @@ def slice_dataset(
     ensure_dir(vid_feature_out)
     ensure_dir(pose_est_out)
     ensure_dir(vid_mask_out)
-    
+
     device = "cuda" if torch.cuda.is_available() else "cpu"
     # seg_model, seg_preprocess, person_idx = build_segmentation_model(device=device)
     seg_model, seg_preprocess, person_idx = build_segmentation_model(device="cpu")
 
     video_files = sorted(glob.glob(f"{video_dir}/*.mp4"))
     pose_est_files = sorted(glob.glob(f"{pose_estimation_dir}/*.json"))
-    assert len(video_files) == len(
-        pose_est_files
-    ), "Mismatch between video and pose estimation file counts"
+    assert len(video_files) == len(pose_est_files), (
+        "Mismatch between video and pose estimation file counts"
+    )
 
     data_stride = ORIGINAL_FPS // fps if fps is not None else 1
     print(f"Slicing dataset with data stride {data_stride}...")
@@ -440,41 +471,32 @@ def slice_dataset(
         )
         print(f"Mask slices: {mask_slices}")
         # make sure the slices line up
-        assert video_slices == pose_slices == mask_slices, \
-            (video_path, pose_path, video_slices, pose_slices, mask_slices)
-        
+        assert video_slices == pose_slices == mask_slices, (
+            video_path,
+            pose_path,
+            video_slices,
+            pose_slices,
+            mask_slices,
+        )
+
+
 def slice_single_pair(
     audio_path,
     video_path,
     motion_feature_path,
     motion_path,
     length_frames: int = 243,
-    target_fps: int = 30,    # TODO: fix fps feeding to model
+    target_fps: int = 30,  # TODO: fix fps feeding to model
     original_fps: int = None,
 ):
     """
     Slices a single (video, pose) pair into aligned 243-frame windows.
     """
-    audio_slice_out = os.path.splitext(audio_path)[0] + "_audio_sliced"
-    audio_slice_out = audio_slice_out.replace("vyttt/", "vyttt/catb/")
-    motion_out = os.path.splitext(motion_path)[0] + "_motion_sliced"
-    motion_out = motion_out.replace("vyttt/", "vyttt/catb/")
-    vid_out = os.path.splitext(video_path)[0] + "_sliced"
-    vid_out = vid_out.replace("vyttt/", "vyttt/catb/")
-    vid_feature_out = os.path.splitext(video_path)[0] + "_embedding_sliced"
-    vid_feature_out = vid_feature_out.replace("vyttt/", "vyttt/catb/")
-    vid_mask_out = os.path.splitext(video_path)[0] + "_mask_sliced"
-    vid_mask_out = vid_mask_out.replace("vyttt/", "vyttt/catb/")
-    pose_est_out = os.path.splitext(motion_feature_path)[0] + "_sliced"
-    pose_est_out = pose_est_out.replace("vyttt/", "vyttt/catb/")
+    OUTPUT_DIR = "/raid/ltnghia02/vyttt/catb/dance_gen/UserEmbedding/datasets/edge_aistpp"
+    video_slice_out_dir = f"{OUTPUT_DIR}/video_sliced/"
+    ensure_dir(video_slice_out_dir)
     # print(vid_feature_out, pose_est_out, pose_est_out)
 
-    ensure_dir(audio_slice_out)
-    ensure_dir(motion_out)
-    ensure_dir(vid_feature_out)
-    ensure_dir(pose_est_out)
-    ensure_dir(vid_mask_out)
-    
     device = "cuda" if torch.cuda.is_available() else "cpu"
     # seg_model, seg_preprocess, person_idx = build_segmentation_model(device=device)
     seg_model, seg_preprocess, person_idx = build_segmentation_model(device="cpu")
@@ -518,8 +540,8 @@ def slice_single_pair(
     #     videoprism_model=VIDEOPRISM_MODEL_NAME,
     # )
     video_slices = slice_video(
-        video_path = video_path,
-        output_dir = vid_out,
+        video_path=video_path,
+        output_dir=video_slice_out_dir,
         n_frames=length_frames,
         target_fps=30,
         overlap=1,
@@ -540,7 +562,7 @@ def slice_single_pair(
     #     seg_model=seg_model,
     #     seg_preprocess=seg_preprocess,
     #     person_idx=person_idx,
-    #     seg_batch=2, 
+    #     seg_batch=2,
     #     mask_latent_size=(64, 64),
     #     # device=device,
     #     device="cpu",
@@ -550,13 +572,14 @@ def slice_single_pair(
     # assert audio_slices == motion_slices == video_slices == pose_slices == mask_slices, \
     #     (audio_slices, motion_slices, video_slices, pose_slices, mask_slices)
 
+
 if __name__ == "__main__":
     slice_single_pair(
-        audio_path=         "/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/wavs/gBR_sBM_c01_d04_mBR0_ch04.wav",
-        video_path=         "/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/video/gBR_sBM_c01_d04_mBR0_ch04.mp4",
+        audio_path="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/wavs/gBR_sBM_c01_d04_mBR0_ch04.wav",
+        video_path="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/video/gBR_sBM_c01_d04_mBR0_ch04.mp4",
         motion_feature_path="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/pose_estimation/gBR_sBM_c01_d04_mBR0_ch04.json",
-        motion_path=        "/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/motions/gBR_sBM_c01_d04_mBR0_ch04.pkl",
-        length_frames=243
+        motion_path="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/motions/gBR_sBM_c01_d04_mBR0_ch04.pkl",
+        length_frames=243,
     )
     # slice_dataset(
     #     video_dir="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/video",
