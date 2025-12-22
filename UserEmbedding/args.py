@@ -1,13 +1,9 @@
 import argparse
 
-
 def parse_train_opt():
     parser = argparse.ArgumentParser()
-    parser.add_argument('--hparams', default='/raid/ltnghia02/vyttt/dance_gen/configs/user_embedding.json', type=str,help='hyper parameters config file path')
     parser.add_argument("--project", default="runs/train", help="project/name")
-    parser.add_argument(
-        "--exp_name", default="user_embedding", help="save to project/name"
-    )
+    parser.add_argument("--exp_name", default="user_embedding", help="save to project/name")
     parser.add_argument("--data_path", type=str, default="data/", help="raw data path")
     parser.add_argument(
         "--processed_data_dir",
@@ -16,16 +12,13 @@ def parse_train_opt():
         help="Dataset backup path",
     )
 
-    parser.add_argument("--batch_size", type=int, default=8, help="batch size")
+    parser.add_argument("--batch_size", type=int, default=64, help="batch size")
     parser.add_argument("--epochs", type=int, default=2000)
-    parser.add_argument(
-        "--eval_only", action="store_true", help="evaluation only"
-    )
     parser.add_argument(
         "--force_reload", action="store_true", help="force reloads the datasets"
     )
     parser.add_argument(
-        "--cache_data", action="store_true", help="cache loaded dataset"
+        "--no_cache", action="store_true", help="don't reuse / cache loaded dataset"
     )
     parser.add_argument(
         "--save_interval",
@@ -36,16 +29,6 @@ def parse_train_opt():
     parser.add_argument("--ema_interval", type=int, default=1, help="ema every x steps")
     parser.add_argument(
         "--checkpoint", type=str, default="", help="trained checkpoint path (optional)"
-    )
-    ### Pretrains ###
-    parser.add_argument(
-        "--motionbert_pretrain",
-        type=str,
-        default="checkpoint/motionbert/FT_MB_lite_MB_ft_h36m_global_lite/best_epoch.bin",
-        help="pretrained MotionBERT checkpoint path",
-    )
-    parser.add_argument(
-        "--use_triplet_reg", action="store_true", default=False, help="use triplet regularization"
     )
     opt = parser.parse_args()
     return opt

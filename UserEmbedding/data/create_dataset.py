@@ -1,11 +1,13 @@
 import argparse
 import os
 from pathlib import Path
-
 import shutil
 from tqdm import tqdm
+import subprocess
 
 from slice import slice_dataset
+from split import split_from_files, add_test_from_train
+import dance_gen.UserEmbedding.data.run_alphapose as run_alphapose
 
 
 def fileToList(f):
@@ -29,15 +31,22 @@ test_list   = load_and_normalize("splits/crossmodal_test.txt")
 
 def create_dataset(opt):
     # split the data according to the splits files
+
+    # run Alpha Pose to get 2D pose estimation
+    print("run alpha pose")
+    run_alphapose.run_alphapose(opt.dataset_folder)
+
+
+
     #TODO: Chia lại train / test split. Hiện tại đang dùng split của AIST++ để code chạy được
-    print("Creating train / test split")
-    split_data(opt.dataset_folder)
+    # print("Creating train / test split")
+    # split_data(opt.dataset_folder)
 
     # slice motions/music into sliding windows to create training dataset
-    print("Slicing train data")
-    slice_dataset(f"train/video", f"train/pose_estimation")
-    print("Slicing test data")
-    slice_dataset(f"test/video", f"test/pose_estimation")
+    # print("Slicing train data")
+    # slice_dataset(f"train/video", f"train/pose_estimation")
+    # print("Slicing test data")
+    # slice_dataset(f"test/video", f"test/pose_estimation")
 
 
 def split_data(dataset_path):
@@ -82,13 +91,13 @@ def parse_opt():
         default="edge_aistpp",
         help="folder containing motions and music",
     )
-    # # 680 480
-    # parser.add_argument(
-    #     "--width", type=int, default=288, help="width to resize videos to"
-    # )
-    # parser.add_argument(
-    #     "--height", type=int, default=288, help="height to resize videos to"
-    # )
+    # 680 480
+    parser.add_argument(
+        "--width", type=int, default=None, help="width to resize videos to"
+    )
+    parser.add_argument(
+        "--height", type=int, default=None, help="height to resize videos to"
+    )
     parser.add_argument(
         "--length_frames",
         type=int,

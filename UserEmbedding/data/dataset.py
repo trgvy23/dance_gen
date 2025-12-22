@@ -2,17 +2,16 @@ import glob
 import os
 import pickle
 import json
-import re
 from pathlib import Path
 import copy
 import logging
+
 
 import numpy as np
 import torch
 from torch.utils.data import Dataset
 
 from decord import VideoReader
-from tqdm import tqdm
 
 
 def halpe2h36m(x):
@@ -93,44 +92,6 @@ def crop_scale(motion, scale_range=[1, 1]):
     return result
 
 
-def parse_aist_labels_from_name(filename: str):
-    """
-    filename example: 'gBR_sBM_cAll_d04_mBR0_ch02'
-    returns: ('gBR', 'd04')
-    """
-    m = re.match(r"^(g[A-Z]{2})_.*_(d\d+)_m", filename)
-    assert m, f"Bad AIST++ name: {filename}"
-    genre_code = m.group(1)  # 'gBR'
-    dancer_code = m.group(2)  # 'd04'
-    return genre_code, dancer_code
-
-
-def build_label_mappings(data_path: str, splits=("train", "test")):
-    """
-    Scan all splits and build a single consistent genre2id, dancer2id mapping.
-    """
-    genre2id = {}
-    dancer2id = {}
-
-    for split in splits:
-        split_root = os.path.join(data_path, split)
-        video_embedding_path = os.path.join(split_root, "video_embedding_sliced")
-        video_embeddings = sorted(
-            glob.glob(os.path.join(video_embedding_path, "*.npy"))
-        )
-
-        for fpath in video_embeddings:
-            v_name = os.path.splitext(os.path.basename(fpath))[0]
-            genre_code, dancer_code = parse_aist_labels_from_name(v_name)
-
-            if genre_code not in genre2id:
-                genre2id[genre_code] = len(genre2id)
-            if dancer_code not in dancer2id:
-                dancer2id[dancer_code] = len(dancer2id)
-
-    return genre2id, dancer2id
-
-
 class DanceDataset(Dataset):
     def __init__(
         self,
@@ -138,9 +99,7 @@ class DanceDataset(Dataset):
         backup_path: str,
         train: bool = True,
         force_reload: bool = False,
-        cache_data: bool = False,
-        genre2id=None,
-        dancer2id=None,
+        no_cache: bool = False,
     ):
         self.data_path = data_path
         # self.raw_fps = 60
@@ -150,11 +109,6 @@ class DanceDataset(Dataset):
 
         self.train = train
         self.name = "Train" if self.train else "Test"
-
-        # If provided, we treat them as fixed global mappings
-        self.genre2id = {} if genre2id is None else genre2id
-        self.dancer2id = {} if dancer2id is None else dancer2id
-        self.fixed_label_maps = (genre2id is not None) and (dancer2id is not None)
 
         pickle_name = "processed_train_data.pkl" if train else "processed_test_data.pkl"
 
@@ -168,57 +122,32 @@ class DanceDataset(Dataset):
         else:
             print("Loading dataset...")
             data = self.load_aistpp()  # Call this last
-            if cache_data:
+            if not no_cache:
                 with open(os.path.join(backup_path, pickle_name), "wb") as f:
                     pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
 
         logging.info(
-            f"Loaded {self.name} Dataset With Dimensions: \n\tVideo embeddings: {data['video_embeddings'].shape}, \n\tPose Estimations: {data['pose_estimations'].shape}, \n\tPose Masks: {data['video_masks'].shape}, \n\tGenre Labels: {data['genre_labels'].shape}, \n\tDancer Labels: {data['dancer_labels'].shape}"
+            f"Loaded {self.name} Dataset With Dimensions: \n\tVideos: {data['videos'].shape}, \n\tPose Estimations: {data['pose_estimations'].shape}"
         )
 
         self.data = {
-            "video_embeddings": data["video_embeddings"],
-            "video_masks": data["video_masks"],
+            "videos": data["videos"],
             "pose_estimations": data["pose_estimations"],
-            "genre_labels": data["genre_labels"],
-            "dancer_labels": data["dancer_labels"],
         }
 
-        assert (
-            len(data["video_embeddings"])
-            == len(data["pose_estimations"])
-            == len(data["video_masks"])
-        )
-        self.length = len(data["video_embeddings"])
+        assert len(data["videos"]) == len(data["pose_estimations"])
+        self.length = len(data["videos"])
 
     def __len__(self):
         return self.length
 
     def __getitem__(self, idx):
-        return (
-            self.data["video_embeddings"][idx],
-            self.data["video_masks"][idx],
-            self.data["pose_estimations"][idx],
-            self.data["genre_labels"][idx],
-            self.data["dancer_labels"][idx],
-        )
+        return self.data["videos"][idx], self.data["pose_estimations"][idx]
 
-    def get_dancer_num(self):
-        labels = self.data["dancer_labels"]
-        if isinstance(labels, np.ndarray):
-            return int(labels.max()) + 1
-        return int(labels.max().item()) + 1
+    def get_video(video_path: str):
+        return np.load(video_path, allow_pickle=True)  # (T, H, W, 3)
 
-    def get_genre_num(self):
-        labels = self.data["genre_labels"]
-        if isinstance(labels, np.ndarray):
-            return int(labels.max()) + 1
-        return int(labels.max().item()) + 1
-
-    def read_npy_files(self, file_path: str):
-        return np.load(file_path, allow_pickle=True)  # (T, H, W, 3)
-
-    def read_pose_estimation(self, json_path, vid_size=None):
+    def read_pose_estimation(json_path, vid_size=None):
         with open(json_path, "r") as read_file:
             results = json.load(read_file)
         kpts_all = []
@@ -237,29 +166,6 @@ class DanceDataset(Dataset):
             pose_estimation = crop_scale(kpts_all)
         return pose_estimation.astype(np.float32)  # (T, 17, 3)
 
-    def parse_aist_labels(self, filename):
-        return parse_aist_labels_from_name(filename)
-
-    def read_label(self, filename):
-        genre_code, dancer_code = self.parse_aist_labels(filename)
-
-        if self.fixed_label_maps:
-            # We expect these to already exist in the global mapping
-            assert genre_code in self.genre2id, f"Unknown genre {genre_code}"
-            assert dancer_code in self.dancer2id, f"Unknown dancer {dancer_code}"
-            genre_id = self.genre2id[genre_code]
-            dancer_id = self.dancer2id[dancer_code]
-        else:
-            # Build mapping on-the-fly (e.g. if you're using only one split somewhere)
-            if genre_code not in self.genre2id:
-                self.genre2id[genre_code] = len(self.genre2id)
-            if dancer_code not in self.dancer2id:
-                self.dancer2id[dancer_code] = len(self.dancer2id)
-            genre_id = self.genre2id[genre_code]
-            dancer_id = self.dancer2id[dancer_code]
-
-        return genre_id, dancer_id
-
     def load_aistpp(self):
         # open data path
         split_root = os.path.join(self.data_path, "train" if self.train else "test")
@@ -270,74 +176,42 @@ class DanceDataset(Dataset):
         #   |    |- videos
         #   |    |- pose_estimation
 
-        video_embedding_path = os.path.join(split_root, "video_embedding_sliced")
-        video_mask_path = os.path.join(split_root, "video_mask_sliced")
+        video_path = os.path.join(split_root, "video_sliced")
         pose_estimation_path = os.path.join(split_root, "pose_estimation_sliced")
 
         # sort motions and sounds
-        video_embeddings = sorted(
-            glob.glob(os.path.join(video_embedding_path, "*.npy"))
-        )
-        video_masks = sorted(glob.glob(os.path.join(video_mask_path, "*.npy")))
+        videos = sorted(glob.glob(os.path.join(video_path, "*.mp4")))
         pose_estimations = sorted(
-            glob.glob(os.path.join(pose_estimation_path, "*.json"))
+            glob.glob(os.path.join(pose_estimation_path, "*.pkl"))
         )
 
-        assert (
-            len(video_embeddings) == len(pose_estimations) == len(video_masks)
-        ), f"Count mismatch: video_embeddings={len(video_embeddings)} pose_estimations={len(pose_estimations)} video_masks={len(video_masks)}"
+        assert len(videos) == len(
+            pose_estimations
+        ), f"Count mismatch: videos={len(videos)} pose_estimations={len(pose_estimations)}"
 
-        (
-            all_video_embeddings,
-            all_video_masks,
-            all_pose_estimations,
-            all_genre_labels,
-            all_dancer_labels,
-        ) = (
-            [],
-            [],
-            [],
-            [],
-            [],
-        )
+        all_videos, all_pose_estimations = [], []
 
-        for video_embedding_filename, video_mask_filename, pose_est_filename in tqdm(
-            zip(video_embeddings, video_masks, pose_estimations),
-            total=len(video_embeddings),
-            desc="Loading data",
-        ):
-            v_name = os.path.splitext(os.path.basename(video_embedding_filename))[0]
+        for video_filename, pose_est_filename in zip(videos, pose_estimations):
+            v_name = os.path.splitext(os.path.basename(video_filename))[0]
             p_name = os.path.splitext(os.path.basename(pose_est_filename))[0]
-            m_name = os.path.splitext(os.path.basename(video_mask_filename))[0]
+            assert (
+                v_name == p_name
+            ), f"Name mismatch: {video_filename} vs {pose_est_filename}"
 
-            assert v_name == p_name == m_name, "Name mismatch {}, {}, {}".format(
-                v_name, p_name, m_name
-            )
+            video = self.get_video(video_filename)
+            all_videos.append(video)
+            
+            video_height = video.shape[1]
+            video_width = video.shape[2]
 
-            video_embedding = self.read_npy_files(video_embedding_filename)
-            all_video_embeddings.append(video_embedding)
-
-            video_mask = self.read_npy_files(video_mask_filename)
-            all_video_masks.append(video_mask)
-
-            pose_est = self.read_pose_estimation(pose_est_filename, vid_size=None)
+            pose_est = self.read_pose_estimation(pose_est_filename, vid_size=(video_width, video_height))
             all_pose_estimations.append(pose_est)
 
-            genre_id, dancer_id = self.read_label(v_name)
-            all_genre_labels.append(genre_id)
-            all_dancer_labels.append(dancer_id)
-
-        all_video_embeddings = np.array(all_video_embeddings)  # N x T x H x W x 3
-        all_video_masks = np.array(all_video_masks)  # N x T x H' x W'
+        all_videos = np.array(all_videos)  # N x T x H x W x 3
         all_pose_estimations = np.array(all_pose_estimations)  # N x T x 17 x 3
-        all_genre_labels = np.array(all_genre_labels)  # N
-        all_dancer_labels = np.array(all_dancer_labels)  # N
 
         data = {
-            "video_embeddings": all_video_embeddings,
-            "video_masks": all_video_masks,
+            "videos": all_videos,
             "pose_estimations": all_pose_estimations,
-            "genre_labels": all_genre_labels,
-            "dancer_labels": all_dancer_labels,
         }
         return data
