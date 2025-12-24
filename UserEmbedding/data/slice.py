@@ -24,7 +24,7 @@ import librosa as lr
 import numpy as np
 import soundfile as sf
 
-from dance_gen.UserEmbedding.data.extraction_features.video_mask_features import get_video_masks_features
+from extraction_features.video_mask_features import get_video_masks_features
 from extraction_features.video_features import extract_video_features
 
 ORIGINAL_FPS = 60  # original fps of videos in dataset
@@ -60,55 +60,77 @@ def build_segmentation_model(device: str = "cuda"):
 
 
 def slice_audio(
-    audio_file,
-    length_frames,
-    out_dir,
-    original_fps=ORIGINAL_FPS,
-):
+    audio_path: str,
+    output_dir: str,
+    n_frames: int,
+    fps: int,
+    overlap: float = 1.0,
+) -> list:
     """
-    Slice audio into chunks based on a given number of *frames*.
+    Slice audio into chunks corresponding to a number of video frames.
+    
+    Args:
+        audio_path: Path to input audio file.
+        output_dir: Directory to save audio slices.
+        n_frames: Number of video frames per slice.
+        fps: Frame rate of the video (used to calculate duration).
+        overlap: Fraction of segment to move forward
+                 1.0 = no overlap
+                 0.5 = overlap half of previous segment
 
-    - stride_frames: how many frames to move between slices
-    - length_frames: how many frames per slice (e.g. 243)
-    - fps: frame rate of your motion / features (e.g. 60 for 60 fps)
+    Returns:
+        List of audio slices.
     """
-    audio, sr = lr.load(audio_file, sr=None)
-    file_name = os.path.splitext(os.path.basename(audio_file))[0]
-    T = len(audio)
-
-    # how many audio samples correspond to 1 frame
-    samples_per_frame = int(round(sr / original_fps))
-
-    window = length_frames * samples_per_frame
-
+    ensure_dir(output_dir)
+    audio, sr = lr.load(audio_path, sr=None)
+    file_name = os.path.splitext(os.path.basename(audio_path))[0]
+    
+    # Calculate samples per window and step
+    # Duration (s) = n_frames / fps
+    samples_per_window = int(round(n_frames * sr / fps))    
+    step_samples = int(round(n_frames * sr / fps * overlap))    
+    total_samples = len(audio)
+    
     start_idx = 0
     idx = 0
-    expected_length = -1
+    list_audio_slices = []
+    
+    print(f"Slicing audio {audio_path}...")
+    print(f"\tSample rate: {sr}, FPS: {fps}")
+    print(f"\tWindow: {n_frames} frames -> {samples_per_window} samples")
+    print(f"\tStep: {overlap} -> {step_samples} samples")
 
-    print(f"Slicing audio {audio_file} with {T} samples...")
-    # while start_idx <= len(audio) - window:
-    while start_idx < T:
-        print(f"Slicing audio {idx} from sample {start_idx}...")
-        audio_slice = audio[start_idx: min(start_idx + window, T)]
-        # print(f"Type of audio slice: {type(audio_slice)}")
-        # print(f"  audio slice shape: {len(audio_slice)}")
-        # print(f"  values: {audio_slice[0]}")
-        sf.write(f"{out_dir}/{file_name}_slice{idx}.wav", audio_slice, sr)
-        if expected_length == -1:
-            expected_length = len(audio_slice)
-        elif len(audio_slice) < expected_length:
-            pad_len = expected_length - len(audio_slice)
-            padding = np.zeros(pad_len, dtype=audio_slice.dtype)
-            audio_slice = np.concatenate([audio_slice, padding], axis=0)
-            sf.write(f"{out_dir}/{file_name}_slice{idx}.wav", audio_slice, sr)
-            # print(f"Padded audio slice {idx} with {pad_len} zeros.")
-            # print(f"  new shape: {len(audio_slice)}")
-            # print(f"  new values: {audio_slice[-1]}")
-        start_idx += window
+    # Iterate while the start of the slice is within the limit
+    while start_idx < total_samples:
+        print(f"\tSlice {idx} from {start_idx} to {min(start_idx + samples_per_window, total_samples)}")
+        
+        # Determine strict end if we want to mimic video 'break' behavior?
+        # In video: break if start + n_frames >= total_frames
+        # That means the last slice must be 'started' before the end, but if it goes over, it's padded.
+        # But if the next start is >= total, we stop.
+        # Here: start_idx < limit_samples handles that.
+        
+        end_idx = min(start_idx + samples_per_window, total_samples)
+        audio_slice = audio[start_idx:end_idx]
+        
+        # Pad with zeros if the slice is shorter than expected (last slice)
+        if len(audio_slice) < samples_per_window:
+            print(f"\t\tMissing audio at segment {start_idx} - {end_idx}")
+            pad_len = samples_per_window - len(audio_slice)
+            audio_slice = np.pad(audio_slice, (0, pad_len), mode='constant')
+            
+        out_path = os.path.join(output_dir, f"{file_name}_slice{idx}.wav")
+        sf.write(out_path, audio_slice, sr)
+        
+        start_idx += step_samples
         idx += 1
+        list_audio_slices.append(audio_slice)
 
-    print(expected_length)
-    return idx
+    return list_audio_slices
+
+
+# TODO: add get baseline feature of audio
+# TODO: add get jukebox feature of audio
 
 
 def slice_video(
@@ -132,7 +154,7 @@ def slice_video(
         pad_value: pixel value for padding (default: 0 = black)
 
     Returns:
-        number of segments created
+        list of video slices
     """
     assert 0 < overlap <= 1.0, "overlap must be in (0, 1]"
 
@@ -174,16 +196,16 @@ def slice_video(
     segment_count = 0
 
     # --- Slice into segments ---
-    print(f"\tSlicing video {video_path}")
+    print(f"Slicing video {video_path}")
     for start in range(0, total_frames, segment_stride):
-        print(f"\t\tSlice from frame {start} to {start + n_frames}")
+        print(f"\tSlice from frame {start} to {start + n_frames}")
         segment = frames[start: start + n_frames]
         if len(segment) == 0:
             break
 
         # Pad last segment if needed
         if len(segment) < n_frames:
-            print(f"Missing frame at segment {start} - {start + n_frames}")
+            print(f"\t\tMissing frame at segment {start} - {start + n_frames}")
             pad_len = n_frames - len(segment)
             pad_frame = np.full(
                 (height, width, 3),
@@ -247,7 +269,6 @@ def extract_sliced_videos_features(
     return feature_output_dir
 
 
-# TODO: add get video mask for each video segment
 def extract_sliced_videos_masks(
     sliced_videos_list: list,
     mask_output_dir: str,
@@ -296,7 +317,7 @@ def extract_sliced_videos_masks(
                 masks.cpu().numpy().astype(np.float32),
             )
             video_masked_list.append(vids_masked_out_file_path)
-            print(f"Video masks: {vids_masked_out_file_path}")
+            print(f"Saving video masks to {vids_masked_out_file_path}")
 
     return video_masked_list
 
@@ -501,43 +522,41 @@ def slice_single_pair(
     motion_feature_path,
     motion_path,
     length_frames: int = 243,
-    target_fps: int = 30,  # TODO: fix fps feeding to model
+    target_fps: int = 30,
     original_fps: int = None,
 ):
     """
     Slices a single (video, pose) pair into aligned 243-frame windows.
     """
     OUTPUT_DIR = "/raid/ltnghia02/vyttt/catb/dance_gen/UserEmbedding/datasets/edge_aistpp"
+    audio_slice_out_dir = f"{OUTPUT_DIR}/audio_sliced/"
     video_slice_out_dir = f"{OUTPUT_DIR}/video_sliced/"
     vid_feature_out_dir = f"{OUTPUT_DIR}/video_features_sliced/"
     vid_mask_out_dir = f"{OUTPUT_DIR}/video_mask_sliced/"
-    # print(vid_feature_out, pose_est_out, pose_est_out)
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    # seg_model, seg_preprocess, person_idx = build_segmentation_model(device=device)
     seg_model, seg_preprocess, person_idx = build_segmentation_model(
         device="cpu")
 
     vr = VideoReader(video_path, ctx=cpu(0))
-    # methods = [
-    #    name for name in dir(vr)
-    #    if callable(getattr(vr, name)) and not name.startswith('__')
-    # ]
-    # print(methods)
 
     if not original_fps:
         original_fps = vr.get_avg_fps()
-    data_stride = int(original_fps // target_fps)
-    print(f"Video {video_path} has fps {target_fps}")
-    print(f"Slicing dataset with data stride {data_stride}...")
+    print(f"Video {video_path} has fps {original_fps}")
 
-    # audio_slices = slice_audio(
-    #     audio_file=audio_path,
-    #     stride_frames=data_stride,
-    #     length_frames=length_frames,
-    #     out_dir=audio_slice_out,
-    #     fps=ORIGINAL_FPS,
-    # )
-    # print(f"Audio slices: {audio_slices}")
+    # Calculate stride used in slice_video to determine expected target frames
+    fps_stride = max(int(round(original_fps / target_fps)), 1)
+    # Calculate number of frames slice_video will see
+    # Logic: indices 0, stride, 2*stride... <= total-1
+    max_target_frames = (len(vr) - 1) // fps_stride + 1
+
+    audio_slices = slice_audio(
+        audio_path=audio_path,
+        output_dir=audio_slice_out_dir,
+        n_frames=length_frames,
+        fps=target_fps,
+        overlap=1.0,
+    )
+    print(f"Audio slices: {audio_slices}")
 
     # motion_slices = slice_motion(
     #     motion_path=motion_path,
@@ -548,18 +567,11 @@ def slice_single_pair(
     # )
     # print(f"Motion slices: {motion_slices}")
 
-    # video_slices = slice_video(
-    #     video_path=video_path,
-    #     length_frames=length_frames,
-    #     step=data_stride,
-    #     feature_output_dir=vid_feature_out,
-    #     videoprism_model=VIDEOPRISM_MODEL_NAME,
-    # )
     video_slices = slice_video(
         video_path=video_path,
         output_dir=video_slice_out_dir,
         n_frames=length_frames,
-        target_fps=30,
+        target_fps=target_fps,
         overlap=1,
     )
     print(f"Video slices: {video_slices}")
@@ -575,10 +587,10 @@ def slice_single_pair(
         seg_model=seg_model,
         seg_preprocess=seg_preprocess,
         person_idx=person_idx,
-    #     seg_batch=2,
-    #     mask_latent_size=(64, 64),
-    #     # device=device,
-    #     device="cpu",
+        seg_batch=2,
+        mask_latent_size=(64, 64),
+        # device=device,
+        device="cpu",
     )
     print(f"Video masks: {video_masks}")
     # pose_slices = slice_motion_feature(
