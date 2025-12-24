@@ -35,6 +35,3 @@ def get_video_masks_features(
 
     masks = torch.cat(all_masks, dim=0)
     return masks
-
-def get_video_embedding():
-    pass
