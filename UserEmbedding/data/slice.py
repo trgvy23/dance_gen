@@ -26,6 +26,7 @@ import soundfile as sf
 
 from extraction_features.video_mask_features import get_video_masks_features
 from extraction_features.video_features import extract_video_features
+from extraction_features.audio_baseline_features import extract_folder
 
 ORIGINAL_FPS = 60  # original fps of videos in dataset
 VIDEO_WIDTH = 288
@@ -52,8 +53,7 @@ def build_segmentation_model(device: str = "cuda"):
     model.eval()
 
     preprocess = weights.transforms()
-    class_to_idx = {cls: idx for (idx, cls) in enumerate(
-        weights.meta["categories"])}
+    class_to_idx = {cls: idx for (idx, cls) in enumerate(weights.meta["categories"])}
     person_idx = class_to_idx["person"]  # human class
 
     return model, preprocess, person_idx
@@ -68,7 +68,7 @@ def slice_audio(
 ) -> list:
     """
     Slice audio into chunks corresponding to a number of video frames.
-    
+
     Args:
         audio_path: Path to input audio file.
         output_dir: Directory to save audio slices.
@@ -84,17 +84,17 @@ def slice_audio(
     ensure_dir(output_dir)
     audio, sr = lr.load(audio_path, sr=None)
     file_name = os.path.splitext(os.path.basename(audio_path))[0]
-    
+
     # Calculate samples per window and step
     # Duration (s) = n_frames / fps
-    samples_per_window = int(round(n_frames * sr / fps))    
-    step_samples = int(round(n_frames * sr / fps * overlap))    
+    samples_per_window = int(round(n_frames * sr / fps))
+    step_samples = int(round(n_frames * sr / fps * overlap))
     total_samples = len(audio)
-    
+
     start_idx = 0
     idx = 0
-    list_audio_slices = []
-    
+    list_sliced_audio = []
+
     print(f"Slicing audio {audio_path}...")
     print(f"\tSample rate: {sr}, FPS: {fps}")
     print(f"\tWindow: {n_frames} frames -> {samples_per_window} samples")
@@ -102,34 +102,49 @@ def slice_audio(
 
     # Iterate while the start of the slice is within the limit
     while start_idx < total_samples:
-        print(f"\tSlice {idx} from {start_idx} to {min(start_idx + samples_per_window, total_samples)}")
-        
+        print(
+            f"\tSlice {idx} from {start_idx} to {min(start_idx + samples_per_window, total_samples)}"
+        )
+
         # Determine strict end if we want to mimic video 'break' behavior?
         # In video: break if start + n_frames >= total_frames
         # That means the last slice must be 'started' before the end, but if it goes over, it's padded.
         # But if the next start is >= total, we stop.
         # Here: start_idx < limit_samples handles that.
-        
+
         end_idx = min(start_idx + samples_per_window, total_samples)
         audio_slice = audio[start_idx:end_idx]
-        
+
         # Pad with zeros if the slice is shorter than expected (last slice)
         if len(audio_slice) < samples_per_window:
             print(f"\t\tMissing audio at segment {start_idx} - {end_idx}")
             pad_len = samples_per_window - len(audio_slice)
-            audio_slice = np.pad(audio_slice, (0, pad_len), mode='constant')
-            
+            audio_slice = np.pad(audio_slice, (0, pad_len), mode="constant")
+
         out_path = os.path.join(output_dir, f"{file_name}_slice{idx}.wav")
         sf.write(out_path, audio_slice, sr)
-        
+
         start_idx += step_samples
         idx += 1
-        list_audio_slices.append(audio_slice)
+        list_sliced_audio.append(out_path)
 
-    return list_audio_slices
+    return list_sliced_audio
 
 
 # TODO: add get baseline feature of audio
+def extract_baseline_feat_sliced_audio(
+    sliced_audio_dir: list,
+    baseline_feat_audio_dir: str,
+) -> list:
+    ensure_dir(baseline_feat_audio_dir)
+    extract_folder(sliced_audio_dir, baseline_feat_audio_dir)
+    baseline_feat_audio_list = os.listdir(baseline_feat_audio_dir)
+    baseline_feat_audio_list = [
+        os.path.abspath(audio_file) for audio_file in baseline_feat_audio_list
+    ]
+    return baseline_feat_audio_list
+
+
 # TODO: add get jukebox feature of audio
 
 
@@ -199,7 +214,7 @@ def slice_video(
     print(f"Slicing video {video_path}")
     for start in range(0, total_frames, segment_stride):
         print(f"\tSlice from frame {start} to {start + n_frames}")
-        segment = frames[start: start + n_frames]
+        segment = frames[start : start + n_frames]
         if len(segment) == 0:
             break
 
@@ -253,15 +268,17 @@ def extract_sliced_videos_features(
 
     feature_output_dir = []
     for video_path in sliced_videos_list:
-        vr = VideoReader(video_path, width=VIDEO_WIDTH,
-                         height=VIDEO_HEIGHT, ctx=cpu(0))
+        vr = VideoReader(video_path, width=VIDEO_WIDTH, height=VIDEO_HEIGHT, ctx=cpu(0))
         T = len(vr)
         inds = list(range(T))
         batch = vr.get_batch(inds).asnumpy()
         embeddings = extract_video_features(
-            batch, fprop_dtype, flax_model, loaded_state)
+            batch, fprop_dtype, flax_model, loaded_state
+        )
         output_file = os.path.join(
-            vid_feature_output_dir, f"{os.path.splitext(os.path.basename(video_path))[0]}.npy")
+            vid_feature_output_dir,
+            f"{os.path.splitext(os.path.basename(video_path))[0]}.npy",
+        )
         feature_output_dir.append(output_file)
         print(f"\t\tSaving video features to {output_file}")
         np.save(output_file, embeddings)
@@ -311,7 +328,9 @@ def extract_sliced_videos_masks(
                 device,
             )
             vids_masked_out_file_path = os.path.join(
-                mask_output_dir, f"{os.path.splitext(os.path.basename(video_path))[0]}.npy")
+                mask_output_dir,
+                f"{os.path.splitext(os.path.basename(video_path))[0]}.npy",
+            )
             np.save(
                 vids_masked_out_file_path,
                 masks.cpu().numpy().astype(np.float32),
@@ -342,7 +361,7 @@ def slice_motion_estimation(
     }
     while start < T:
         print(f"Slicing motion estimation {idx} from frame {start}...")
-        slice_ests = pose_ests[start: min(start + slice_length, T): step]
+        slice_ests = pose_ests[start : min(start + slice_length, T) : step]
         if len(slice_ests) < slice_length:
             cur = len(slice_ests)
             pad = slice_length - cur
@@ -396,7 +415,7 @@ def slice_motion(
                 # )
 
                 sliced_motion[key] = motion_data[key][
-                    start: min(start + slice_length, T): data_stride
+                    start : min(start + slice_length, T) : data_stride
                 ]
                 # print(f"Length of sliced motion at key {key}: {len(sliced_motion[key])}")
                 if len(sliced_motion[key]) < length_frames:
@@ -407,8 +426,7 @@ def slice_motion(
                             (pad_len,) + motion_data[key].shape[1:],
                             dtype=motion_data[key].dtype,
                         )
-                        sliced_motion[key] = np.vstack(
-                            [sliced_motion[key], padding])
+                        sliced_motion[key] = np.vstack([sliced_motion[key], padding])
                     else:
                         padding = [0] * pad_len
                         sliced_motion[key].extend(padding)
@@ -528,26 +546,22 @@ def slice_single_pair(
     """
     Slices a single (video, pose) pair into aligned 243-frame windows.
     """
-    OUTPUT_DIR = "/raid/ltnghia02/vyttt/catb/dance_gen/UserEmbedding/datasets/edge_aistpp"
+    OUTPUT_DIR = (
+        "/raid/ltnghia02/vyttt/catb/dance_gen/UserEmbedding/datasets/edge_aistpp"
+    )
     audio_slice_out_dir = f"{OUTPUT_DIR}/audio_sliced/"
+    baseline_feat_sliced_audio = f"{OUTPUT_DIR}/baseline_feats"
     video_slice_out_dir = f"{OUTPUT_DIR}/video_sliced/"
     vid_feature_out_dir = f"{OUTPUT_DIR}/video_features_sliced/"
     vid_mask_out_dir = f"{OUTPUT_DIR}/video_mask_sliced/"
     device = "cuda" if torch.cuda.is_available() else "cpu"
-    seg_model, seg_preprocess, person_idx = build_segmentation_model(
-        device="cpu")
+    seg_model, seg_preprocess, person_idx = build_segmentation_model(device="cpu")
 
     vr = VideoReader(video_path, ctx=cpu(0))
 
     if not original_fps:
         original_fps = vr.get_avg_fps()
     print(f"Video {video_path} has fps {original_fps}")
-
-    # Calculate stride used in slice_video to determine expected target frames
-    fps_stride = max(int(round(original_fps / target_fps)), 1)
-    # Calculate number of frames slice_video will see
-    # Logic: indices 0, stride, 2*stride... <= total-1
-    max_target_frames = (len(vr) - 1) // fps_stride + 1
 
     audio_slices = slice_audio(
         audio_path=audio_path,
@@ -557,6 +571,11 @@ def slice_single_pair(
         overlap=1.0,
     )
     print(f"Audio slices: {audio_slices}")
+
+    baseline_feat_sliced_audio = extract_baseline_feat_sliced_audio(
+        audio_slice_out_dir, baseline_feat_sliced_audio
+    )
+    print(f"Baseline feat sliced audio: {baseline_feat_sliced_audio}")
 
     # motion_slices = slice_motion(
     #     motion_path=motion_path,
@@ -575,12 +594,14 @@ def slice_single_pair(
         overlap=1,
     )
     print(f"Video slices: {video_slices}")
+
     video_features = extract_sliced_videos_features(
         sliced_videos_list=video_slices,
         vid_feature_output_dir=vid_feature_out_dir,
         videoprism_model=VIDEOPRISM_MODEL_NAME,
     )
     print(f"Video features: {video_features}")
+
     video_masks = extract_sliced_videos_masks(
         sliced_videos_list=video_slices,
         mask_output_dir=vid_mask_out_dir,
