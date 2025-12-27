@@ -131,21 +131,30 @@ def slice_audio(
     return list_sliced_audio
 
 
-# TODO: add get baseline feature of audio
 def extract_baseline_feat_sliced_audio(
-    sliced_audio_dir: list,
+    sliced_audio_dir: str,
     baseline_feat_audio_dir: str,
 ) -> list:
     ensure_dir(baseline_feat_audio_dir)
     extract_folder(sliced_audio_dir, baseline_feat_audio_dir)
-    baseline_feat_audio_list = os.listdir(baseline_feat_audio_dir)
-    baseline_feat_audio_list = [
-        os.path.abspath(audio_file) for audio_file in baseline_feat_audio_list
+    return [
+        os.path.join(baseline_feat_audio_dir, f)
+        for f in os.listdir(baseline_feat_audio_dir)
+        if f.endswith(".npy")
     ]
-    return baseline_feat_audio_list
 
 
-# TODO: add get jukebox feature of audio
+def extract_jukebox_feat_sliced_audio(
+    sliced_audio_dir: str,
+    jukebox_feat_audio_dir: str,
+) -> list:
+    ensure_dir(jukebox_feat_audio_dir)
+    extract_folder(sliced_audio_dir, jukebox_feat_audio_dir)
+    return [
+        os.path.join(jukebox_feat_audio_dir, f)
+        for f in os.listdir(jukebox_feat_audio_dir)
+        if f.endswith(".npy")
+    ]
 
 
 def slice_video(
@@ -551,6 +560,7 @@ def slice_single_pair(
     )
     audio_slice_out_dir = f"{OUTPUT_DIR}/audio_sliced/"
     baseline_feat_sliced_audio = f"{OUTPUT_DIR}/baseline_feats"
+    jukebox_feat_sliced_audio = f"{OUTPUT_DIR}/jukebox_feats"
     video_slice_out_dir = f"{OUTPUT_DIR}/video_sliced/"
     vid_feature_out_dir = f"{OUTPUT_DIR}/video_features_sliced/"
     vid_mask_out_dir = f"{OUTPUT_DIR}/video_mask_sliced/"
@@ -576,6 +586,11 @@ def slice_single_pair(
         audio_slice_out_dir, baseline_feat_sliced_audio
     )
     print(f"Baseline feat sliced audio: {baseline_feat_sliced_audio}")
+
+    jukebox_feat_sliced_audio = extract_jukebox_feat_sliced_audio(
+        audio_slice_out_dir, jukebox_feat_sliced_audio
+    )
+    print(f"Jukebox feat sliced audio: {jukebox_feat_sliced_audio}")
 
     # motion_slices = slice_motion(
     #     motion_path=motion_path,
