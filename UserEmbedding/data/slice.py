@@ -388,75 +388,102 @@ def slice_motion_estimation(
 def slice_motion(
     motion_path: str,
     output_dir: str,
-    data_stride: int,
-    length_frames: int = 243,
-    fps: int = ORIGINAL_FPS,
-):
-    with open(motion_path, "rb") as motion_pkl:
-        motion_data = pickle.load(motion_pkl)
+    n_frames: int,
+    target_fps: int,
+    overlap: float = 1.0,
+    original_fps: int = ORIGINAL_FPS,
+) -> list[str]:
+    """
+    Slice motion into fixed-length segments
+
+    Args:
+        motion_path: path to motion .pkl
+        output_dir: directory to save motion slices
+        n_frames: number of frames per segment (after downsampling)
+        target_fps: fps to sample motion to
+        overlap: fraction of segment to move forward
+                 1.0 = no overlap
+                 0.5 = overlap half of previous segment
+        original_fps: original fps of motion data
+
+    Returns:
+        list of motion slice paths
+    """
+    assert 0 < overlap <= 1.0, "overlap must be in (0, 1]"
+
+    ensure_dir(output_dir)
+
+    with open(motion_path, "rb") as f:
+        motion_data = pickle.load(f)
+
+    keys = motion_data.keys()
     T = len(motion_data["smpl_poses"])
 
-    # print(f"Slicing motion {motion_path}...")
-    # step = ORIGINAL_FPS // fps if fps is not None else 1
+    # Downsampling stride (same idea as fps_stride in video)
+    data_stride = max(int(round(original_fps / target_fps)), 1)
 
-    start = 0
-    idx = 0
-    slice_length = data_stride * length_frames
+    # Segment stride (controls overlap)
+    segment_stride = max(int(round(n_frames * overlap)), 1)
+
+    # Total raw frames consumed per segment
+    slice_length = n_frames * data_stride
+
     basename = os.path.splitext(os.path.basename(motion_path))[0]
 
-    print(f"Slicing motion {motion_path} with {T} frames...")
-    keys = motion_data.keys()
+    print(f"Slicing motion {motion_path}")
+    print(f"  Total frames: {T}")
+    print(f"  data_stride: {data_stride}")
+    print(f"  segment_stride: {segment_stride}")
 
-    while start < T:
-        sliced_motion = dict.fromkeys(keys)
-        # print(f"Slicing motion {idx} from frame {start}...")
-        for key in motion_data.keys():
+    slice_paths = []
+    segment_count = 0
+
+    for start in range(0, T, segment_stride * data_stride):
+        print(f"\tSlice from frame {start} to {start + slice_length}")
+
+        sliced_motion = {}
+
+        for key in keys:
             if key == "smpl_loss":
                 sliced_motion[key] = 0.0
             elif key == "smpl_scaling":
                 sliced_motion[key] = motion_data[key]
             else:
-                # print(
-                #     type(start), start,
-                #     type(slice_length), slice_length,
-                #     type(T), T,
-                #     type(data_stride), data_stride
-                # )
-
-                sliced_motion[key] = motion_data[key][
+                chunk = motion_data[key][
                     start : min(start + slice_length, T) : data_stride
                 ]
-                # print(f"Length of sliced motion at key {key}: {len(sliced_motion[key])}")
-                if len(sliced_motion[key]) < length_frames:
-                    cur = len(sliced_motion[key])
-                    pad_len = length_frames - cur
-                    if isinstance(motion_data[key], np.ndarray):
+
+                # Padding if needed
+                if len(chunk) < n_frames:
+                    pad_len = n_frames - len(chunk)
+
+                    if isinstance(chunk, np.ndarray):
                         padding = np.zeros(
-                            (pad_len,) + motion_data[key].shape[1:],
-                            dtype=motion_data[key].dtype,
+                            (pad_len,) + chunk.shape[1:],
+                            dtype=chunk.dtype,
                         )
-                        sliced_motion[key] = np.vstack([sliced_motion[key], padding])
+                        chunk = np.vstack([chunk, padding])
                     else:
-                        padding = [0] * pad_len
-                        sliced_motion[key].extend(padding)
-                    # print(f"Length of sliced motion at key {key} after padding: {len(sliced_motion[key])}")
-        # print(f"Sliced motion: {sliced_motion}")
-        with open(
-            os.path.join(output_dir, f"{basename}_slice{idx}.pkl"), "wb"
-        ) as write_file:
-            pickle.dump(sliced_motion, write_file)
-        start += slice_length
-        idx += 1
+                        chunk = list(chunk)
+                        chunk.extend([0] * pad_len)
 
-    # print(f"Motion type: {type(motion_data)}")
-    # for key in motion_data.keys():
-    #     if hasattr(motion_data[key], "shape"):
-    #         print(f"  Key: {key}, type: {motion_data[key]}, shape: {motion_data[key].shape}")
-    #     else:
-    #         print(f"  Key: {key}, type: {motion_data[key]}")
+                sliced_motion[key] = chunk
 
-    # print(f"Motion content: {motion_data}")
-    return idx
+        out_path = os.path.join(
+            output_dir,
+            f"{basename}_slice{segment_count}.pkl",
+        )
+        with open(out_path, "wb") as f:
+            pickle.dump(sliced_motion, f)
+
+        slice_paths.append(out_path)
+        segment_count += 1
+
+        # Stop after padded last segment (same logic as video)
+        if start + slice_length >= T:
+            break
+
+    return slice_paths
 
 
 # def slice_dataset(
@@ -546,7 +573,6 @@ def slice_motion(
 def slice_single_pair(
     audio_path,
     video_path,
-    motion_feature_path,
     motion_path,
     length_frames: int = 243,
     target_fps: int = 30,
@@ -564,6 +590,7 @@ def slice_single_pair(
     video_slice_out_dir = f"{OUTPUT_DIR}/video_sliced/"
     vid_feature_out_dir = f"{OUTPUT_DIR}/video_features_sliced/"
     vid_mask_out_dir = f"{OUTPUT_DIR}/video_mask_sliced/"
+    motion_slice_out_dir = f"{OUTPUT_DIR}/motion_sliced/"
     device = "cuda" if torch.cuda.is_available() else "cpu"
     seg_model, seg_preprocess, person_idx = build_segmentation_model(device="cpu")
 
@@ -591,15 +618,6 @@ def slice_single_pair(
         audio_slice_out_dir, jukebox_feat_sliced_audio
     )
     print(f"Jukebox feat sliced audio: {jukebox_feat_sliced_audio}")
-
-    # motion_slices = slice_motion(
-    #     motion_path=motion_path,
-    #     output_dir=motion_out,
-    #     data_stride=data_stride,
-    #     length_frames=length_frames,
-    #     fps=fps_feed_to_model,
-    # )
-    # print(f"Motion slices: {motion_slices}")
 
     video_slices = slice_video(
         video_path=video_path,
@@ -629,6 +647,15 @@ def slice_single_pair(
         device="cpu",
     )
     print(f"Video masks: {video_masks}")
+
+    motion_slices = slice_motion(
+        motion_path=motion_path,
+        output_dir=motion_slice_out_dir,
+        n_frames=length_frames,
+        target_fps=target_fps,
+    )
+    print(f"Motion slices: {motion_slices}")
+
     # pose_slices = slice_motion_feature(
     #     pose_path=motion_feature_path,
     #     length_frames=length_frames,
@@ -636,20 +663,6 @@ def slice_single_pair(
     #     output_dir=pose_est_out,
     # )
     # print(f"Pose slices: {pose_slices}")
-    # mask_slices = slice_video_masks(
-    #     video_path=video_path,
-    #     length_frames=length_frames,
-    #     step=data_stride,
-    #     mask_output_dir=vid_mask_out,
-    #     seg_model=seg_model,
-    #     seg_preprocess=seg_preprocess,
-    #     person_idx=person_idx,
-    #     seg_batch=2,
-    #     mask_latent_size=(64, 64),
-    #     # device=device,
-    #     device="cpu",
-    # )
-    # print(f"Mask slices: {mask_slices}")
     # # make sure the slices line up
     # assert audio_slices == motion_slices == video_slices == pose_slices == mask_slices, \
     #     (audio_slices, motion_slices, video_slices, pose_slices, mask_slices)
@@ -659,7 +672,7 @@ if __name__ == "__main__":
     slice_single_pair(
         audio_path="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/wavs/gBR_sBM_c01_d04_mBR0_ch04.wav",
         video_path="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/video/gBR_sBM_c01_d04_mBR0_ch04.mp4",
-        motion_feature_path="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/pose_estimation/gBR_sBM_c01_d04_mBR0_ch04.json",
+        # motion_feature_path="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/pose_estimation/gBR_sBM_c01_d04_mBR0_ch04.json",
         motion_path="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/motions/gBR_sBM_c01_d04_mBR0_ch04.pkl",
         length_frames=243,
     )
