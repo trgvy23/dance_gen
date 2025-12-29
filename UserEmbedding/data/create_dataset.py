@@ -7,7 +7,7 @@ import subprocess
 
 from slice import slice_dataset
 from split import split_from_files, add_test_from_train
-import dance_gen.UserEmbedding.data.run_alphapose as run_alphapose
+import dance_gen.UserEmbedding.data.extraction_features.run_alphapose as run_alphapose
 
 
 def fileToList(f):

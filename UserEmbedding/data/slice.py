@@ -27,6 +27,7 @@ import soundfile as sf
 from extraction_features.video_mask_features import get_video_masks_features
 from extraction_features.video_features import extract_video_features
 from extraction_features.audio_baseline_features import extract_folder
+from extraction_features import alphapose_features
 
 ORIGINAL_FPS = 60  # original fps of videos in dataset
 VIDEO_WIDTH = 288
@@ -486,6 +487,27 @@ def slice_motion(
     return slice_paths
 
 
+#TODO: run alphapose
+def extract_feat_using_alphapose(
+    sliced_vid_list: list,
+    raw_alphapose_out_dir: list,
+    final_alphapose_out_dir: str
+) -> list:
+    ensure_dir(raw_alphapose_out_dir)
+    ensure_dir(final_alphapose_out_dir)
+    cuda_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
+    alphapose_feats_list = alphapose_features.run_alphapose(
+        cuda_devices,
+        sliced_vid_list,
+        raw_alphapose_out_dir,
+        final_alphapose_out_dir,
+    )
+    return alphapose_feats_list
+
+
+#TODO: run motionbert
+
+
 # def slice_dataset(
 #     video_dir,
 #     pose_estimation_dir,
@@ -570,7 +592,7 @@ def slice_motion(
 #         )
 
 
-def slice_single_pair(
+def slice_single_tuple(
     audio_path,
     video_path,
     motion_path,
@@ -591,6 +613,8 @@ def slice_single_pair(
     vid_feature_out_dir = f"{OUTPUT_DIR}/video_features_sliced/"
     vid_mask_out_dir = f"{OUTPUT_DIR}/video_mask_sliced/"
     motion_slice_out_dir = f"{OUTPUT_DIR}/motion_sliced/"
+    raw_alphapose_out_dir = f"{OUTPUT_DIR}/alphapose_raw_sliced"
+    final_alphapose_out_dir = f"{OUTPUT_DIR}/alphapose_sliced"
     device = "cuda" if torch.cuda.is_available() else "cpu"
     seg_model, seg_preprocess, person_idx = build_segmentation_model(device="cpu")
 
@@ -648,6 +672,13 @@ def slice_single_pair(
     )
     print(f"Video masks: {video_masks}")
 
+    alphapose_feat_list = extract_feat_using_alphapose(
+        video_slices,
+        raw_alphapose_out_dir,
+        final_alphapose_out_dir
+    )
+    print(f"Alphapose features: {alphapose_feat_list}")
+
     motion_slices = slice_motion(
         motion_path=motion_path,
         output_dir=motion_slice_out_dir,
@@ -669,7 +700,7 @@ def slice_single_pair(
 
 
 if __name__ == "__main__":
-    slice_single_pair(
+    slice_single_tuple(
         audio_path="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/wavs/gBR_sBM_c01_d04_mBR0_ch04.wav",
         video_path="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/video/gBR_sBM_c01_d04_mBR0_ch04.mp4",
         # motion_feature_path="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/pose_estimation/gBR_sBM_c01_d04_mBR0_ch04.json",
