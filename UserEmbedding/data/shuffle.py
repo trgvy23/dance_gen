@@ -61,20 +61,10 @@ def shuffle(
     export_map_path: Optional[str] = None
 ) -> tuple:
     music_ids = {data.music_id for data in train_data + test_data}
-    # pprint.pprint(music_ids)
     shuffle_music_ids_map = build_genre_shuffle_map(music_ids)
-    # pprint.pprint(shuffle_music_ids_map)
-
-    # print("before:")
-    # print(f"\ttrain: {train_data[:5]}")
-    # print(f"\ttest: {test_data[:5]}")
 
     for data in train_data + test_data:
         data.update_music_id(shuffle_music_ids_map[data.music_id])
-
-    # print("after:")
-    # print(f"\ttrain: {train_data[:5]}")
-    # print(f"\ttest: {test_data[:5]}")
 
     if export_map_path is not None:
         _export_shuffle_map(shuffle_music_ids_map, export_map_path)

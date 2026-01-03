@@ -28,6 +28,7 @@ from extraction_features.video_mask_features import get_video_masks_features
 from extraction_features.video_features import extract_video_features
 from extraction_features.audio_baseline_features import extract_folder
 from extraction_features import alphapose_features
+from extraction_features import motionbert_features
 
 ORIGINAL_FPS = 60  # original fps of videos in dataset
 VIDEO_WIDTH = 288
@@ -487,25 +488,74 @@ def slice_motion(
     return slice_paths
 
 
-#TODO: run alphapose
+
 def extract_feat_using_alphapose(
     sliced_vid_list: list,
     raw_alphapose_out_dir: list,
-    final_alphapose_out_dir: str
+    final_alphapose_out_dir: str,
+    conda_env: str = "alphapose",
 ) -> list:
+    """
+    Run AlphaPose inference on sliced videos.
+
+    Args:
+        sliced_vid_list: list of sliced .mp4 paths
+        raw_alphapose_out_dir: directory to save raw AlphaPose outputs
+        final_alphapose_out_dir: directory to save final AlphaPose outputs
+        conda_env: conda environment name for AlphaPose
+
+    Returns:
+        list of output file paths
+    """
     ensure_dir(raw_alphapose_out_dir)
     ensure_dir(final_alphapose_out_dir)
-    cuda_devices = os.environ.get("CUDA_VISIBLE_DEVICES")
+    env = os.environ.copy()
+    cuda_device = env["CUDA_VISIBLE_DEVICES"]
     alphapose_feats_list = alphapose_features.run_alphapose(
-        cuda_devices,
         sliced_vid_list,
         raw_alphapose_out_dir,
         final_alphapose_out_dir,
+        cuda_device,
+        conda_env,
     )
     return alphapose_feats_list
 
 
 #TODO: run motionbert
+def extract_feat_using_motionbert(
+    sliced_vid_list: list,
+    sliced_alphapose_list: list,
+    sliced_motionbert_dir: str,
+    conda_env: str = "motionbert",
+) -> list:
+    """
+    Run MotionBERT inference on sliced videos + AlphaPose jsons.
+
+    Args:
+        sliced_vid_list: list of sliced .mp4 paths
+        sliced_alphapose_list: list of corresponding alphapose .json paths
+        sliced_motionbert_dir: directory to save MotionBERT outputs
+        conda_env: conda environment name for MotionBERT
+
+    Returns:
+        list of output file paths
+    """
+    ensure_dir(sliced_motionbert_dir)
+    # make sure video and alphapose have the same basename
+    for v, j in zip(sliced_vid_list, sliced_alphapose_list):
+        print(f"video file name: {os.path.splitext(os.path.basename(v))[0]}, alphapose file name: {os.path.splitext(os.path.basename(j))[0]}")
+        assert os.path.splitext(os.path.basename(v))[0] == \
+               os.path.splitext(os.path.basename(j))[0]
+    env = os.environ.copy()
+    cuda_device = env["CUDA_VISIBLE_DEVICES"]
+    motionbert_feats_list = motionbert_features.run_motionbert(
+        sliced_vid_list,
+        sliced_alphapose_list,
+        sliced_motionbert_dir,
+        cuda_device,
+        conda_env,
+    )
+    return motionbert_feats_list
 
 
 # def slice_dataset(
@@ -615,6 +665,7 @@ def slice_single_tuple(
     motion_slice_out_dir = f"{OUTPUT_DIR}/motion_sliced/"
     raw_alphapose_out_dir = f"{OUTPUT_DIR}/alphapose_raw_sliced"
     final_alphapose_out_dir = f"{OUTPUT_DIR}/alphapose_sliced"
+    motionbert_out_dir = f"{OUTPUT_DIR}/motionbert_sliced"
     device = "cuda" if torch.cuda.is_available() else "cpu"
     seg_model, seg_preprocess, person_idx = build_segmentation_model(device="cpu")
 
@@ -624,31 +675,33 @@ def slice_single_tuple(
         original_fps = vr.get_avg_fps()
     print(f"Video {video_path} has fps {original_fps}")
 
-    audio_slices = slice_audio(
-        audio_path=audio_path,
-        output_dir=audio_slice_out_dir,
-        n_frames=length_frames,
-        fps=target_fps,
-        overlap=1.0,
-    )
-    print(f"Audio slices: {audio_slices}")
+    # # slice audio
+    # audio_slices = slice_audio(
+    #     audio_path=audio_path,
+    #     output_dir=audio_slice_out_dir,
+    #     n_frames=length_frames,
+    #     fps=target_fps,
+    #     overlap=1.0,
+    # )
+    # print(f"Audio slices: {audio_slices}")
 
-    baseline_feat_sliced_audio = extract_baseline_feat_sliced_audio(
-        audio_slice_out_dir, baseline_feat_sliced_audio
-    )
-    print(f"Baseline feat sliced audio: {baseline_feat_sliced_audio}")
+    # baseline_feat_sliced_audio = extract_baseline_feat_sliced_audio(
+    #     audio_slice_out_dir, baseline_feat_sliced_audio
+    # )
+    # print(f"Baseline feat sliced audio: {baseline_feat_sliced_audio}")
 
-    jukebox_feat_sliced_audio = extract_jukebox_feat_sliced_audio(
-        audio_slice_out_dir, jukebox_feat_sliced_audio
-    )
-    print(f"Jukebox feat sliced audio: {jukebox_feat_sliced_audio}")
+    # jukebox_feat_sliced_audio = extract_jukebox_feat_sliced_audio(
+    #     audio_slice_out_dir, jukebox_feat_sliced_audio
+    # )
+    # print(f"Jukebox feat sliced audio: {jukebox_feat_sliced_audio}")
 
+    # slice video
     video_slices = slice_video(
-        video_path=video_path,
-        output_dir=video_slice_out_dir,
-        n_frames=length_frames,
-        target_fps=target_fps,
-        overlap=1,
+       video_path=video_path,
+       output_dir=video_slice_out_dir,
+       n_frames=length_frames,
+       target_fps=target_fps,
+       overlap=1,
     )
     print(f"Video slices: {video_slices}")
 
@@ -679,13 +732,21 @@ def slice_single_tuple(
     )
     print(f"Alphapose features: {alphapose_feat_list}")
 
-    motion_slices = slice_motion(
-        motion_path=motion_path,
-        output_dir=motion_slice_out_dir,
-        n_frames=length_frames,
-        target_fps=target_fps,
+    motionbert_feat_list = extract_feat_using_motionbert(
+        video_slices,
+        alphapose_feat_list,
+        motionbert_out_dir,
     )
-    print(f"Motion slices: {motion_slices}")
+    print(f"MotionBERT features: {motionbert_feat_list}")
+
+    # # slice motion
+    # motion_slices = slice_motion(
+    #     motion_path=motion_path,
+    #     output_dir=motion_slice_out_dir,
+    #     n_frames=length_frames,
+    #     target_fps=target_fps,
+    # )
+    # print(f"Motion slices: {motion_slices}")
 
     # pose_slices = slice_motion_feature(
     #     pose_path=motion_feature_path,

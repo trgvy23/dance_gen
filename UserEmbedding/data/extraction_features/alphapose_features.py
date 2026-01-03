@@ -16,24 +16,28 @@ CFG = f"{AP_ROOT}/configs/halpe_26/resnet/256x192_res50_lr1e-3_1x.yaml"
 CKPT = f"{AP_ROOT}/pretrained_models/halpe26_fast_res50_256x192.pth"
 
 def run_alphapose(
-    cuda_devices,
     vid_list: list,
     out_raw_json_dir: str=OUT_RAW_ROOT,
-    out_json_dir: str=OUT_ROOT
+    out_json_dir: str=OUT_ROOT,
+    cuda_device: str = None,
+    conda_env: str = "alphapose",
 ) -> list:
     alphapose_out_list = []
+    env = os.environ.copy()
+    if cuda_device is not None:
+        env["CUDA_VISIBLE_DEVICES"] = cuda_device
     for vid_path in vid_list:
         vid_file_name = os.path.basename(vid_path)
         vid_name = os.path.splitext(vid_file_name)[0]
         raw_file_path = os.path.join(out_raw_json_dir, vid_name, "alphapose-results.json")
-        final_file_path = os.path.join(out_json_dir, f"{vid_file_name}.json")
+        final_file_path = os.path.join(out_json_dir, f"{vid_name}.json")
         print(f"process {vid_path}, vid name: {vid_file_name}, raw path: {raw_file_path}, final path: {final_file_path}")
         if os.path.exists(raw_file_path):
             print(f"Skip {vid_file_name}")
         else:
             cmd = [
                 "conda", "run",
-                "-n", "alphapose",
+                "-n", conda_env,
                 "python", ALPHA_POSE_FILE,
                 "--cfg", CFG,
                 "--checkpoint", CKPT,
@@ -41,7 +45,6 @@ def run_alphapose(
                 "--outdir", os.path.join(out_raw_json_dir, vid_name),
                 "--save_video",
             ]
-            env = os.environ.copy()
             subprocess.run(
                 cmd,
                 cwd=AP_ROOT,
