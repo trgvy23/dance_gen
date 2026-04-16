@@ -80,7 +80,8 @@ def crop_scale(motion, scale_range=[1, 1]):
     xmax = max(valid_coords[:, 0])
     ymin = min(valid_coords[:, 1])
     ymax = max(valid_coords[:, 1])
-    ratio = np.random.uniform(low=scale_range[0], high=scale_range[1], size=1)[0]
+    ratio = np.random.uniform(
+        low=scale_range[0], high=scale_range[1], size=1)[0]
     scale = max(xmax - xmin, ymax - ymin) * ratio
     if scale == 0:
         return np.zeros(motion.shape)
@@ -168,7 +169,8 @@ class DanceDataset(Dataset):
 
     def load_aistpp(self):
         # open data path
-        split_root = os.path.join(self.data_path, "train" if self.train else "test")
+        split_root = os.path.join(
+            self.data_path, "train" if self.train else "test")
 
         # Structure:
         # data
@@ -177,7 +179,8 @@ class DanceDataset(Dataset):
         #   |    |- pose_estimation
 
         video_path = os.path.join(split_root, "video_sliced")
-        pose_estimation_path = os.path.join(split_root, "pose_estimation_sliced")
+        pose_estimation_path = os.path.join(
+            split_root, "pose_estimation_sliced")
 
         # sort motions and sounds
         videos = sorted(glob.glob(os.path.join(video_path, "*.mp4")))
@@ -200,11 +203,12 @@ class DanceDataset(Dataset):
 
             video = self.get_video(video_filename)
             all_videos.append(video)
-            
+
             video_height = video.shape[1]
             video_width = video.shape[2]
 
-            pose_est = self.read_pose_estimation(pose_est_filename, vid_size=(video_width, video_height))
+            pose_est = self.read_pose_estimation(
+                pose_est_filename, vid_size=(video_width, video_height))
             all_pose_estimations.append(pose_est)
 
         all_videos = np.array(all_videos)  # N x T x H x W x 3

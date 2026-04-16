@@ -23,30 +23,19 @@ import pickle
 import librosa as lr
 import numpy as np
 import soundfile as sf
+from tqdm import tqdm
 
-from extraction_features.video_mask_features import get_video_masks_features
-from extraction_features.video_features import extract_video_features
-from extraction_features.audio_baseline_features import extract_folder
-from extraction_features import alphapose_features
-from extraction_features import motionbert_features
+from extracting_features.video_mask_features import get_video_masks_features
+from extracting_features.video_features import extract_video_features
+from extracting_features.audio_baseline_features import extract_folder
+from extracting_features import alphapose_features
+from extracting_features import motionbert_features
+from io_files import ensure_dir
 
 ORIGINAL_FPS = 60  # original fps of videos in dataset
 VIDEO_WIDTH = 288
 VIDEO_HEIGHT = 288
 VIDEOPRISM_MODEL_NAME = "videoprism_public_v1_base"
-
-
-def ensure_dir(p: str) -> None:
-    if os.path.exists(p):
-        # Xóa toàn bộ nội dung bên trong directory
-        for name in os.listdir(p):
-            path = os.path.join(p, name)
-            if os.path.isfile(path) or os.path.islink(path):
-                os.remove(path)
-            else:
-                shutil.rmtree(path)
-    else:
-        os.makedirs(p, exist_ok=True)
 
 
 def build_segmentation_model(device: str = "cuda"):
@@ -55,7 +44,8 @@ def build_segmentation_model(device: str = "cuda"):
     model.eval()
 
     preprocess = weights.transforms()
-    class_to_idx = {cls: idx for (idx, cls) in enumerate(weights.meta["categories"])}
+    class_to_idx = {cls: idx for (idx, cls) in enumerate(
+        weights.meta["categories"])}
     person_idx = class_to_idx["person"]  # human class
 
     return model, preprocess, person_idx
@@ -97,16 +87,16 @@ def slice_audio(
     idx = 0
     list_sliced_audio = []
 
-    print(f"Slicing audio {audio_path}...")
-    print(f"\tSample rate: {sr}, FPS: {fps}")
-    print(f"\tWindow: {n_frames} frames -> {samples_per_window} samples")
-    print(f"\tStep: {overlap} -> {step_samples} samples")
+    # print(f"Slicing audio {audio_path}...")
+    # print(f"\tSample rate: {sr}, FPS: {fps}")
+    # print(f"\tWindow: {n_frames} frames -> {samples_per_window} samples")
+    # print(f"\tStep: {overlap} -> {step_samples} samples")
 
     # Iterate while the start of the slice is within the limit
     while start_idx < total_samples:
-        print(
-            f"\tSlice {idx} from {start_idx} to {min(start_idx + samples_per_window, total_samples)}"
-        )
+        # print(
+        #     f"\tSlice {idx} from {start_idx} to {min(start_idx + samples_per_window, total_samples)}"
+        # )
 
         # Determine strict end if we want to mimic video 'break' behavior?
         # In video: break if start + n_frames >= total_frames
@@ -119,12 +109,15 @@ def slice_audio(
 
         # Pad with zeros if the slice is shorter than expected (last slice)
         if len(audio_slice) < samples_per_window:
-            print(f"\t\tMissing audio at segment {start_idx} - {end_idx}")
+            # print(f"\t\tMissing audio at segment {start_idx} - {end_idx}")
             pad_len = samples_per_window - len(audio_slice)
             audio_slice = np.pad(audio_slice, (0, pad_len), mode="constant")
 
         out_path = os.path.join(output_dir, f"{file_name}_slice{idx}.wav")
         sf.write(out_path, audio_slice, sr)
+        assert os.path.exists(
+            out_path), f"Failed to create audio slice: {out_path}"
+        # print(f"\tCreated audio slice: {out_path}")
 
         start_idx += step_samples
         idx += 1
@@ -222,16 +215,16 @@ def slice_video(
     segment_count = 0
 
     # --- Slice into segments ---
-    print(f"Slicing video {video_path}")
+    # print(f"Slicing video {video_path}")
     for start in range(0, total_frames, segment_stride):
-        print(f"\tSlice from frame {start} to {start + n_frames}")
-        segment = frames[start : start + n_frames]
+        # print(f"\tSlice from frame {start} to {start + n_frames}")
+        segment = frames[start: start + n_frames]
         if len(segment) == 0:
             break
 
         # Pad last segment if needed
         if len(segment) < n_frames:
-            print(f"\t\tMissing frame at segment {start} - {start + n_frames}")
+            # print(f"\t\tMissing frame at segment {start} - {start + n_frames}")
             pad_len = n_frames - len(segment)
             pad_frame = np.full(
                 (height, width, 3),
@@ -257,6 +250,8 @@ def slice_video(
             writer.write(f)
 
         writer.release()
+        assert os.path.exists(
+            out_path), f"Failed to create video slice: {out_path}"
         segment_count += 1
 
         # Stop if this was the padded last segment
@@ -264,92 +259,6 @@ def slice_video(
             break
 
     return slice_videos_list
-
-
-def extract_sliced_videos_features(
-    sliced_videos_list: list,
-    vid_feature_output_dir: str,
-    videoprism_model,
-    use_bfloat16: bool = True,
-) -> list:
-    ensure_dir(vid_feature_output_dir)
-    fprop_dtype = jnp.bfloat16 if use_bfloat16 else None
-    flax_model = vp.get_model(videoprism_model, fprop_dtype=fprop_dtype)
-    loaded_state = vp.load_pretrained_weights(videoprism_model)
-
-    feature_output_dir = []
-    for video_path in sliced_videos_list:
-        vr = VideoReader(video_path, width=VIDEO_WIDTH, height=VIDEO_HEIGHT, ctx=cpu(0))
-        T = len(vr)
-        inds = list(range(T))
-        batch = vr.get_batch(inds).asnumpy()
-        embeddings = extract_video_features(
-            batch, fprop_dtype, flax_model, loaded_state
-        )
-        output_file = os.path.join(
-            vid_feature_output_dir,
-            f"{os.path.splitext(os.path.basename(video_path))[0]}.npy",
-        )
-        feature_output_dir.append(output_file)
-        print(f"\t\tSaving video features to {output_file}")
-        np.save(output_file, embeddings)
-
-    return feature_output_dir
-
-
-def extract_sliced_videos_masks(
-    sliced_videos_list: list,
-    mask_output_dir: str,
-    seg_model,
-    seg_preprocess,
-    person_idx: int,
-    seg_batch: int = 16,
-    mask_latent_size: Tuple[int, int] = (64, 64),
-    device: str = "cpu",
-    mask_reader_size: Optional[Tuple[int, int]] = (
-        512,
-        512,
-    ),  # e.g. (720, 1280) or None for original
-) -> int:
-    """
-    Runs segmentation in mini-batches for each slice and saves [T, h_latent, w_latent] masks.
-    """
-    ensure_dir(mask_output_dir)
-    video_masked_list = []
-    with torch.no_grad():
-        for video_path in sliced_videos_list:
-            # Reader for masks; use original resolution unless mask_reader_size is provided
-            if mask_reader_size is None:
-                vr = VideoReader(video_path, ctx=cpu(0))
-            else:
-                h, w = mask_reader_size
-                vr = VideoReader(video_path, width=w, height=h, ctx=cpu(0))
-            T = len(vr)
-            inds = list(range(T))
-            frames = vr.get_batch(inds).asnumpy()  # [T,H,W,3] uint8
-            T_slice = frames.shape[0]
-            masks = get_video_masks_features(  # [T,64,64]
-                frames,
-                T_slice,
-                seg_model,
-                seg_preprocess,
-                person_idx,
-                seg_batch,
-                mask_latent_size,
-                device,
-            )
-            vids_masked_out_file_path = os.path.join(
-                mask_output_dir,
-                f"{os.path.splitext(os.path.basename(video_path))[0]}.npy",
-            )
-            np.save(
-                vids_masked_out_file_path,
-                masks.cpu().numpy().astype(np.float32),
-            )
-            video_masked_list.append(vids_masked_out_file_path)
-            print(f"Saving video masks to {vids_masked_out_file_path}")
-
-    return video_masked_list
 
 
 def slice_motion_estimation(
@@ -360,7 +269,7 @@ def slice_motion_estimation(
 
     T = len(pose_ests)
 
-    print(f"Slicing motion estimation {pose_path} with {T} frames...")
+    # print(f"Slicing motion estimation {pose_path} with {T} frames...")
     start = 0
     idx = 0
     basename = os.path.splitext(os.path.basename(pose_path))[0]
@@ -371,8 +280,8 @@ def slice_motion_estimation(
         "keypoints": padding_keypoints,
     }
     while start < T:
-        print(f"Slicing motion estimation {idx} from frame {start}...")
-        slice_ests = pose_ests[start : min(start + slice_length, T) : step]
+        # print(f"Slicing motion estimation {idx} from frame {start}...")
+        slice_ests = pose_ests[start: min(start + slice_length, T): step]
         if len(slice_ests) < slice_length:
             cur = len(slice_ests)
             pad = slice_length - cur
@@ -432,16 +341,16 @@ def slice_motion(
 
     basename = os.path.splitext(os.path.basename(motion_path))[0]
 
-    print(f"Slicing motion {motion_path}")
-    print(f"  Total frames: {T}")
-    print(f"  data_stride: {data_stride}")
-    print(f"  segment_stride: {segment_stride}")
+    # print(f"Slicing motion {motion_path}")
+    # print(f"  Total frames: {T}")
+    # print(f"  data_stride: {data_stride}")
+    # print(f"  segment_stride: {segment_stride}")
 
     slice_paths = []
     segment_count = 0
 
     for start in range(0, T, segment_stride * data_stride):
-        print(f"\tSlice from frame {start} to {start + slice_length}")
+        # print(f"\tSlice from frame {start} to {start + slice_length}")
 
         sliced_motion = {}
 
@@ -452,7 +361,7 @@ def slice_motion(
                 sliced_motion[key] = motion_data[key]
             else:
                 chunk = motion_data[key][
-                    start : min(start + slice_length, T) : data_stride
+                    start: min(start + slice_length, T): data_stride
                 ]
 
                 # Padding if needed
@@ -478,6 +387,8 @@ def slice_motion(
         with open(out_path, "wb") as f:
             pickle.dump(sliced_motion, f)
 
+        assert os.path.exists(
+            out_path), f"Failed to create motion slice: {out_path}"
         slice_paths.append(out_path)
         segment_count += 1
 
@@ -488,289 +399,159 @@ def slice_motion(
     return slice_paths
 
 
-
-def extract_feat_using_alphapose(
-    sliced_vid_list: list,
-    raw_alphapose_out_dir: list,
-    final_alphapose_out_dir: str,
-    conda_env: str = "alphapose",
-) -> list:
+def slice_dataset(
+    data_dir: str,
+    data_list: list,
+    length_frames: int = 243,
+    fps: int = None,
+    overlap: float = 1.0,
+    skip_if_exists: bool = False,
+):
     """
-    Run AlphaPose inference on sliced videos.
-
-    Args:
-        sliced_vid_list: list of sliced .mp4 paths
-        raw_alphapose_out_dir: directory to save raw AlphaPose outputs
-        final_alphapose_out_dir: directory to save final AlphaPose outputs
-        conda_env: conda environment name for AlphaPose
-
-    Returns:
-        list of output file paths
+    Slices each (video, pose) pair into aligned 243-frame windows.
     """
-    ensure_dir(raw_alphapose_out_dir)
-    ensure_dir(final_alphapose_out_dir)
-    env = os.environ.copy()
-    cuda_device = env["CUDA_VISIBLE_DEVICES"]
-    alphapose_feats_list = alphapose_features.run_alphapose(
-        sliced_vid_list,
-        raw_alphapose_out_dir,
-        final_alphapose_out_dir,
-        cuda_device,
-        conda_env,
-    )
-    return alphapose_feats_list
+    vid_data_dir = os.path.join(data_dir, "video")
+    assert os.path.exists(vid_data_dir), f"Path ${vid_data_dir} not found"
+    music_data_dir = os.path.join(data_dir, "wavs")
+    assert os.path.exists(music_data_dir), f"Path ${music_data_dir} not found"
+    motion_data_dir = os.path.join(data_dir, "motions")
+    assert os.path.exists(
+        motion_data_dir), f"Path ${motion_data_dir} not found"
+    pbar = tqdm(data_list, desc="Slicing dataset")
 
+    # for data in data_list:
+    total_sliced_data = []
+    for data in pbar:
+        video_path = os.path.join(vid_data_dir, data + ".mp4")
+        music_path = os.path.join(music_data_dir, data + ".wav")
+        motion_path = os.path.join(motion_data_dir, data + ".pkl")
+        pbar.set_postfix_str(f"Slicing {data}...")
 
-#TODO: run motionbert
-def extract_feat_using_motionbert(
-    sliced_vid_list: list,
-    sliced_alphapose_list: list,
-    sliced_motionbert_dir: str,
-    conda_env: str = "motionbert",
-) -> list:
-    """
-    Run MotionBERT inference on sliced videos + AlphaPose jsons.
+        audios_sliced_list, videos_sliced_list, motions_sliced_list = slice_single_tuple(
+            data_dir,
+            video_path,
+            music_path,
+            motion_path,
+            length_frames,
+            fps,
+            overlap,
+            skip_if_exists
+        )
+        total_sliced_data.extend([os.path.splitext(os.path.basename(video_path))[
+                                 0] for video_path in audios_sliced_list])
 
-    Args:
-        sliced_vid_list: list of sliced .mp4 paths
-        sliced_alphapose_list: list of corresponding alphapose .json paths
-        sliced_motionbert_dir: directory to save MotionBERT outputs
-        conda_env: conda environment name for MotionBERT
-
-    Returns:
-        list of output file paths
-    """
-    ensure_dir(sliced_motionbert_dir)
-    # make sure video and alphapose have the same basename
-    for v, j in zip(sliced_vid_list, sliced_alphapose_list):
-        print(f"video file name: {os.path.splitext(os.path.basename(v))[0]}, alphapose file name: {os.path.splitext(os.path.basename(j))[0]}")
-        assert os.path.splitext(os.path.basename(v))[0] == \
-               os.path.splitext(os.path.basename(j))[0]
-    env = os.environ.copy()
-    cuda_device = env["CUDA_VISIBLE_DEVICES"]
-    motionbert_feats_list = motionbert_features.run_motionbert(
-        sliced_vid_list,
-        sliced_alphapose_list,
-        sliced_motionbert_dir,
-        cuda_device,
-        conda_env,
-    )
-    return motionbert_feats_list
-
-
-# def slice_dataset(
-#     video_dir,
-#     pose_estimation_dir,
-#     length_frames: int = 243,
-#     fps: int = None,
-# ):
-#     """
-#     Slices each (video, pose) pair into aligned 243-frame windows.
-#     """
-#     vid_feature_out = video_dir + "_embedding_sliced"
-#     vid_feature_out = vid_feature_out.replace("vyttt/", "vyttt/catb/")
-#     vid_mask_out = video_dir + "_mask_sliced"
-#     vid_mask_out = vid_mask_out.replace("vyttt/", "vyttt/catb/")
-#     pose_est_out = pose_estimation_dir + "_sliced"
-#     pose_est_out = pose_est_out.replace("vyttt/", "vyttt/catb/")
-
-#     ensure_dir(vid_feature_out)
-#     ensure_dir(pose_est_out)
-#     ensure_dir(vid_mask_out)
-
-#     device = "cuda" if torch.cuda.is_available() else "cpu"
-#     # seg_model, seg_preprocess, person_idx = build_segmentation_model(device=device)
-#     seg_model, seg_preprocess, person_idx = build_segmentation_model(
-#         device="cpu")
-
-#     video_files = sorted(glob.glob(f"{video_dir}/*.mp4"))
-#     pose_est_files = sorted(glob.glob(f"{pose_estimation_dir}/*.json"))
-#     assert len(video_files) == len(pose_est_files), (
-#         "Mismatch between video and pose estimation file counts"
-#     )
-
-#     data_stride = ORIGINAL_FPS // fps if fps is not None else 1
-#     print(f"Slicing dataset with data stride {data_stride}...")
-
-#     for video_path, pose_path in tqdm(zip(video_files, pose_est_files), desc="Slicing"):
-#         video_basename = os.path.splitext(os.path.basename(video_path))[0]
-#         pose_basename = os.path.splitext(os.path.basename(pose_path))[0]
-#         # vr = VideoReader(video_path, ctx=cpu(0))
-#         # fps = int(vr.get_avg_fps())
-#         # print(f"Video {video_path} has fps {fps}")
-#         fps = 60
-#         data_stride = ORIGINAL_FPS // fps if fps is not None else 1
-
-#         assert video_basename == pose_basename, str(
-#             (video_basename, pose_basename))
-
-#         video_slices = slice_video(
-#             video_path=video_path,
-#             length_frames=length_frames,
-#             step=data_stride,
-#             feature_output_dir=vid_feature_out,
-#             videoprism_model=VIDEOPRISM_MODEL_NAME,
-#         )
-#         print(f"Video slices: {video_slices}")
-#         pose_slices = slice_motion_estimation(
-#             pose_path=pose_path,
-#             length_frames=length_frames,
-#             step=data_stride,
-#             output_dir=pose_est_out,
-#         )
-#         print(f"Pose slices: {pose_slices}")
-#         mask_slices = slice_video_masks(
-#             video_path=video_path,
-#             length_frames=length_frames,
-#             step=data_stride,
-#             mask_output_dir=vid_mask_out,
-#             seg_model=seg_model,
-#             seg_preprocess=seg_preprocess,
-#             person_idx=person_idx,
-#             seg_batch=8,
-#             mask_latent_size=(64, 64),
-#             device=device,
-#         )
-#         print(f"Mask slices: {mask_slices}")
-#         # make sure the slices line up
-#         assert video_slices == pose_slices == mask_slices, (
-#             video_path,
-#             pose_path,
-#             video_slices,
-#             pose_slices,
-#             mask_slices,
-#         )
+    return total_sliced_data
 
 
 def slice_single_tuple(
-    audio_path,
-    video_path,
-    motion_path,
+    data_dir: str,
+    video_path: str,
+    music_path: str,
+    motion_path: str,
     length_frames: int = 243,
     target_fps: int = 30,
     original_fps: int = None,
+    skip_if_exists: bool = False,
 ):
     """
     Slices a single (video, pose) pair into aligned 243-frame windows.
     """
-    OUTPUT_DIR = (
-        "/raid/ltnghia02/vyttt/catb/dance_gen/UserEmbedding/datasets/edge_aistpp"
-    )
-    audio_slice_out_dir = f"{OUTPUT_DIR}/audio_sliced/"
-    baseline_feat_sliced_audio = f"{OUTPUT_DIR}/baseline_feats"
-    jukebox_feat_sliced_audio = f"{OUTPUT_DIR}/jukebox_feats"
-    video_slice_out_dir = f"{OUTPUT_DIR}/video_sliced/"
-    vid_feature_out_dir = f"{OUTPUT_DIR}/video_features_sliced/"
-    vid_mask_out_dir = f"{OUTPUT_DIR}/video_mask_sliced/"
-    motion_slice_out_dir = f"{OUTPUT_DIR}/motion_sliced/"
-    raw_alphapose_out_dir = f"{OUTPUT_DIR}/alphapose_raw_sliced"
-    final_alphapose_out_dir = f"{OUTPUT_DIR}/alphapose_sliced"
-    motionbert_out_dir = f"{OUTPUT_DIR}/motionbert_sliced"
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    seg_model, seg_preprocess, person_idx = build_segmentation_model(device="cpu")
+    assert os.path.exists(video_path) and os.path.isfile(
+        video_path), f"Video path ${video_path} not found"
+    assert os.path.exists(music_path) and os.path.isfile(
+        music_path), f"Audio path ${music_path} not found"
+    assert os.path.exists(motion_path) and os.path.isfile(
+        motion_path), f"Motion path ${motion_path} not found"
+    audio_slice_out_dir = os.path.join(data_dir, "wavs_sliced")
+    os.makedirs(audio_slice_out_dir, exist_ok=True)
+    video_slice_out_dir = os.path.join(data_dir, "video_sliced")
+    os.makedirs(video_slice_out_dir, exist_ok=True)
+    motion_slice_out_dir = os.path.join(data_dir, "motions_sliced")
+    os.makedirs(motion_slice_out_dir, exist_ok=True)
+
+    if skip_if_exists:
+        tqdm.write("Collecting existing slices...")
+        basename = os.path.splitext(os.path.basename(video_path))[0]
+        audio_existing = find_existing_slices(
+            audio_slice_out_dir,  basename, "wav")
+        video_existing = find_existing_slices(
+            video_slice_out_dir,  basename, "mp4")
+        motion_existing = find_existing_slices(
+            motion_slice_out_dir, basename, "pkl")
+
+        if video_existing or motion_existing or audio_existing:
+            if (audio_existing and video_existing and motion_existing and
+                    len(audio_existing) == len(video_existing) == len(motion_existing)):
+                tqdm.write(
+                    f"Enough existing slices found for {basename}, skipping slicing.")
+                return audio_existing, video_existing, motion_existing
+
+            # Mismatch → log và slice lại (KHÔNG return)
+            tqdm.write(
+                f"[WARN] slice mismatch {basename}, re-slicing: "
+                f"audio={len(audio_existing)}, "
+                f"video={len(video_existing)}, "
+                f"motion={len(motion_existing)}"
+            )
 
     vr = VideoReader(video_path, ctx=cpu(0))
 
     if not original_fps:
         original_fps = vr.get_avg_fps()
-    print(f"Video {video_path} has fps {original_fps}")
+    # print(f"Video {video_path} has fps {original_fps}")
 
-    # # slice audio
-    # audio_slices = slice_audio(
-    #     audio_path=audio_path,
-    #     output_dir=audio_slice_out_dir,
-    #     n_frames=length_frames,
-    #     fps=target_fps,
-    #     overlap=1.0,
-    # )
+    # slice audio
+    audio_slices = slice_audio(
+        audio_path=music_path,
+        output_dir=audio_slice_out_dir,
+        n_frames=length_frames,
+        fps=target_fps,
+        overlap=1.0,
+    )
+    assert len(audio_slices) > 0, f"No audio slices created for {music_path}"
     # print(f"Audio slices: {audio_slices}")
-
-    # baseline_feat_sliced_audio = extract_baseline_feat_sliced_audio(
-    #     audio_slice_out_dir, baseline_feat_sliced_audio
-    # )
-    # print(f"Baseline feat sliced audio: {baseline_feat_sliced_audio}")
-
-    # jukebox_feat_sliced_audio = extract_jukebox_feat_sliced_audio(
-    #     audio_slice_out_dir, jukebox_feat_sliced_audio
-    # )
-    # print(f"Jukebox feat sliced audio: {jukebox_feat_sliced_audio}")
 
     # slice video
     video_slices = slice_video(
-       video_path=video_path,
-       output_dir=video_slice_out_dir,
-       n_frames=length_frames,
-       target_fps=target_fps,
-       overlap=1,
+        video_path=video_path,
+        output_dir=video_slice_out_dir,
+        n_frames=length_frames,
+        target_fps=target_fps,
+        overlap=1,
     )
-    print(f"Video slices: {video_slices}")
+    assert len(video_slices) > 0, f"No video slices created for {video_path}"
 
-    video_features = extract_sliced_videos_features(
-        sliced_videos_list=video_slices,
-        vid_feature_output_dir=vid_feature_out_dir,
-        videoprism_model=VIDEOPRISM_MODEL_NAME,
+    # slice motion
+    motion_slices = slice_motion(
+        motion_path=motion_path,
+        output_dir=motion_slice_out_dir,
+        n_frames=length_frames,
+        target_fps=target_fps,
     )
-    print(f"Video features: {video_features}")
-
-    video_masks = extract_sliced_videos_masks(
-        sliced_videos_list=video_slices,
-        mask_output_dir=vid_mask_out_dir,
-        seg_model=seg_model,
-        seg_preprocess=seg_preprocess,
-        person_idx=person_idx,
-        seg_batch=2,
-        mask_latent_size=(64, 64),
-        # device=device,
-        device="cpu",
-    )
-    print(f"Video masks: {video_masks}")
-
-    alphapose_feat_list = extract_feat_using_alphapose(
-        video_slices,
-        raw_alphapose_out_dir,
-        final_alphapose_out_dir
-    )
-    print(f"Alphapose features: {alphapose_feat_list}")
-
-    motionbert_feat_list = extract_feat_using_motionbert(
-        video_slices,
-        alphapose_feat_list,
-        motionbert_out_dir,
-    )
-    print(f"MotionBERT features: {motionbert_feat_list}")
-
-    # # slice motion
-    # motion_slices = slice_motion(
-    #     motion_path=motion_path,
-    #     output_dir=motion_slice_out_dir,
-    #     n_frames=length_frames,
-    #     target_fps=target_fps,
-    # )
+    assert len(
+        motion_slices) > 0, f"No motion slices created for {motion_path}"
     # print(f"Motion slices: {motion_slices}")
 
-    # pose_slices = slice_motion_feature(
-    #     pose_path=motion_feature_path,
-    #     length_frames=length_frames,
-    #     step=data_stride,
-    #     output_dir=pose_est_out,
-    # )
-    # print(f"Pose slices: {pose_slices}")
-    # # make sure the slices line up
-    # assert audio_slices == motion_slices == video_slices == pose_slices == mask_slices, \
-    #     (audio_slices, motion_slices, video_slices, pose_slices, mask_slices)
+    assert len(audio_slices) == len(video_slices) == len(
+        motion_slices), (len(audio_slices), len(video_slices), len(motion_slices))
+    return audio_slices, video_slices, motion_slices
 
 
-if __name__ == "__main__":
-    slice_single_tuple(
-        audio_path="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/wavs/gBR_sBM_c01_d04_mBR0_ch04.wav",
-        video_path="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/video/gBR_sBM_c01_d04_mBR0_ch04.mp4",
-        # motion_feature_path="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/pose_estimation/gBR_sBM_c01_d04_mBR0_ch04.json",
-        motion_path="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/motions/gBR_sBM_c01_d04_mBR0_ch04.pkl",
-        length_frames=243,
-    )
-    # slice_dataset(
-    #     video_dir="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/video",
-    #     pose_estimation_dir="/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/pose_estimation",
-    #     length_frames=243,
-    #     # fps=30,
-    # )
+def find_existing_slices(out_dir: str, basename: str, ext: str):
+    """
+    Return sorted slice names WITHOUT extension.
+    Example: ['xxx_slice0', 'xxx_slice1']
+    """
+    if not os.path.isdir(out_dir):
+        return []
+
+    pattern = re.compile(
+        rf"^{re.escape(basename)}_slice(\d+)\.{re.escape(ext)}$")
+    slices = []
+
+    for f in os.listdir(out_dir):
+        m = pattern.match(f)
+        if m:
+            slices.append((int(m.group(1)), os.path.splitext(f)[0]))
+
+    return [name for _, name in sorted(slices)]

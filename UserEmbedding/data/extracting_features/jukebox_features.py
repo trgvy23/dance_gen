@@ -6,7 +6,7 @@ import jukemirlib
 import numpy as np
 from tqdm import tqdm
 
-FPS = 60
+FPS = 30
 LAYER = 66
 
 
@@ -25,12 +25,15 @@ def extract(fpath, skip_completed=True, dest_dir="aist_juke_feats"):
     return reps[LAYER], save_path
 
 
-def extract_folder(src, dest):
+def extract_folder(src, dest, skip_completed=False):
     fpaths = Path(src).glob("*")
     fpaths = sorted(list(fpaths))
-    extract_ = partial(extract, skip_completed=False, dest_dir=dest)
+    extract_ = partial(extract, skip_completed=skip_completed, dest_dir=dest)
     for fpath in tqdm(fpaths):
-        rep, path = extract_(fpath)
+        result = extract_(fpath)
+        if result is None:
+            continue
+        rep, path = result
         np.save(path, rep)
 
 

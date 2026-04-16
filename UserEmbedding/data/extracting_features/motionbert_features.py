@@ -1,6 +1,8 @@
 import os
 import argparse
 import subprocess
+import time
+from tqdm import tqdm
 
 # ==== DEFAULT PATHS ====
 ROOT_DIR = "/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/"
@@ -18,6 +20,8 @@ def run_motionbert(
     sliced_motionbert_dir: str,
     cuda_device: str = None,
     conda_env: str = "motionbert",
+    motionbert_dir: str = MB_ROOT,
+    skip_if_exists: bool = False,
 ) -> list:
     """
     Run MotionBERT inference on sliced videos + AlphaPose jsons.
@@ -41,35 +45,43 @@ def run_motionbert(
     if cuda_device is not None:
         env["CUDA_VISIBLE_DEVICES"] = cuda_device
 
-    for video_path, json_path in zip(sliced_video_list, sliced_alphapose_list):
+    pbar = tqdm(
+        zip(sliced_video_list, sliced_alphapose_list),
+        total=len(sliced_video_list),
+        desc="MotionBERT inference",
+    )
+    motionbert_cfg_path = os.path.join(motionbert_dir, CONFIG)
+    motionbert_ckpt_path = os.path.join(motionbert_dir, CHECKPOINT)
+    for video_path, json_path in pbar:
         base_name = os.path.splitext(os.path.basename(video_path))[0]
 
         # MotionBERT usually outputs per-video files
         out_path = os.path.join(sliced_motionbert_dir, f"{base_name}.pkl")
 
-        print(f"\nProcessing MotionBERT: {base_name}")
-        print(f"  video: {video_path}")
-        print(f"  pose : {json_path}")
-        print(f"  out  : {out_path}")
+        # print(f"\nProcessing MotionBERT: {base_name}")
+        # print(f"  video: {video_path}")
+        # print(f"  pose : {json_path}")
+        # print(f"  out  : {out_path}")
 
-        if os.path.exists(out_path):
-            print(f"  Skip (already exists)")
+        pbar.set_postfix({"file": base_name})
+        if skip_if_exists and os.path.exists(out_path):
+            tqdm.write(f"Skip {base_name} (already exists)")
             output_list.append(out_path)
             continue
 
         if not os.path.exists(video_path):
-            print(f"  Video not found, skipping")
+            tqdm.write(f"Video not found, skipping {base_name}")
             continue
 
         if not os.path.exists(json_path):
-            print(f"  AlphaPose json not found, skipping")
+            tqdm.write(f"AlphaPose json not found, skipping {base_name}")
             continue
 
         cmd = [
             "conda", "run", "-n", conda_env,
             "python", "infer_wild_custom.py",
-            "--config", CONFIG,
-            "--evaluate", CHECKPOINT,
+            "--config", motionbert_cfg_path,
+            "--evaluate", motionbert_ckpt_path,
             "--vid_path", video_path,
             "--json_path", json_path,
             "--out_path", sliced_motionbert_dir,
@@ -78,7 +90,7 @@ def run_motionbert(
 
         subprocess.run(
             cmd,
-            cwd=MB_ROOT,
+            cwd=motionbert_dir,
             env=env,
             check=True,
         )
@@ -89,6 +101,7 @@ def run_motionbert(
             )
 
         output_list.append(out_path)
+        time.sleep(2)
 
     return output_list
 
