@@ -210,3 +210,10 @@ __marimo__/
 datasets/
 UserEmbedding/datasets/
 data/**/
+
+# Bash
+*.sh
+
+UserEmbedding/scr/videoprism_repo/
+/UserEmbedding/src/videoprism_repo
+UserEmbedding/checkpoint/
