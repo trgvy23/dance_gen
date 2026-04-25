@@ -18,7 +18,6 @@ def run_motionbert(
     sliced_video_list: list,
     sliced_alphapose_list: list,
     sliced_motionbert_dir: str,
-    cuda_device: str = None,
     conda_env: str = "motionbert",
     motionbert_dir: str = MB_ROOT,
     skip_if_exists: bool = False,
@@ -42,8 +41,6 @@ def run_motionbert(
 
     output_list = []
     env = os.environ.copy()
-    if cuda_device is not None:
-        env["CUDA_VISIBLE_DEVICES"] = cuda_device
 
     pbar = tqdm(
         zip(sliced_video_list, sliced_alphapose_list),

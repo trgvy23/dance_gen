@@ -113,13 +113,11 @@ def create_dataset(opt):
 
     print("Slicing train set")
     sliced_train_data_list = slice_dataset(train_data_folder, train_data_list, length_frames=opt.length_frames,
-                                        #    fps=opt.fps, overlap=opt.overlap, skip_if_exists=False)
-                                           fps = opt.fps, overlap = opt.overlap, skip_if_exists = not opt.do_shuffle)
+                                           fps=opt.fps, overlap=opt.overlap, skip_if_exists=not opt.do_shuffle)
 
     print("Slicing test set")
     sliced_test_data_list = slice_dataset(test_data_folder, test_data_list, length_frames=opt.length_frames,
-                                        #   fps=opt.fps, overlap=opt.overlap, skip_if_exists=False)
-                                          fps = opt.fps, overlap = opt.overlap, skip_if_exists = not opt.do_shuffle)
+                                          fps=opt.fps, overlap=opt.overlap, skip_if_exists=not opt.do_shuffle)
 
     if opt.do_shuffle:
         print("Shuffling music IDs")

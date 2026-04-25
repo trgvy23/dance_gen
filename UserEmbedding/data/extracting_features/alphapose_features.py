@@ -193,15 +193,12 @@ def run_alphapose(
     vid_list: list,
     out_raw_json_dir: str = OUT_RAW_ROOT,
     out_json_dir: str = OUT_ROOT,
-    cuda_device: str = None,
     conda_env: str = "alphapose",
     alphapose_dir: str = AP_ROOT,
     skip_if_exists: bool = False,
 ) -> list:
     alphapose_out_list = []
     env = os.environ.copy()
-    if cuda_device is not None:
-        env["CUDA_VISIBLE_DEVICES"] = cuda_device
 
     pbar = tqdm(vid_list, desc="AlphaPose inference")
     alphapose_script_path = os.path.join(

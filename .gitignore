@@ -209,6 +209,9 @@ __marimo__/
 # Data
 datasets/
 UserEmbedding/datasets/
+UserEmbedding/data/splits/
+UserEmbedding/data/train/
+UserEmbedding/data/test/
 data/**/
 
 # Bash
