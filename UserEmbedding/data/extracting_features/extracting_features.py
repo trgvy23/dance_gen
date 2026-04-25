@@ -111,12 +111,15 @@ def extract_sliced_videos_masks(
     ensure_dir(mask_output_dir, create_new=not skip_if_exists)
     video_masked_list = []
     seg_model = seg_model.to(device)
+    pbar = tqdm(sliced_videos_list,
+                desc="Extracting video masks", unit="video")
     with torch.no_grad():
-        for video_path in sliced_videos_list:
+        for video_path in pbar:
             vids_masked_out_file_path = os.path.join(
                 mask_output_dir,
                 f"{os.path.splitext(os.path.basename(video_path))[0]}.npy",
             )
+            pbar.set_postfix({"file": os.path.basename(video_path)})
             if skip_if_exists and os.path.exists(vids_masked_out_file_path):
                 video_masked_list.append(vids_masked_out_file_path)
                 continue
@@ -169,6 +172,7 @@ def extract_feat_using_alphapose(
         sliced_vid_list: list of sliced .mp4 paths
         raw_alphapose_out_dir: directory to save raw AlphaPose outputs
         final_alphapose_out_dir: directory to save final AlphaPose outputs
+        cuda_devices: comma-separated list of CUDA device IDs
         conda_env: conda environment name for AlphaPose
 
     Returns:
@@ -178,14 +182,11 @@ def extract_feat_using_alphapose(
         assert os.path.exists(path), f"Sliced video path {path} not found"
     ensure_dir(raw_alphapose_out_dir, create_new=not skip_if_exists)
     ensure_dir(final_alphapose_out_dir, create_new=not skip_if_exists)
-    env = os.environ.copy()
-    cuda_device = env["CUDA_VISIBLE_DEVICES"]
     alphapose_feats_list = run_alphapose(
         sliced_vid_list,
         raw_alphapose_out_dir,
         final_alphapose_out_dir,
-        cuda_device,
-        conda_env,
+        conda_env=conda_env,
         skip_if_exists=skip_if_exists,
     )
     return alphapose_feats_list
@@ -219,13 +220,10 @@ def extract_feat_using_motionbert(
         #     f"video file name: {os.path.splitext(os.path.basename(v))[0]}, alphapose file name: {os.path.splitext(os.path.basename(j))[0]}")
         assert os.path.splitext(os.path.basename(v))[0] == \
             os.path.splitext(os.path.basename(j))[0]
-    env = os.environ.copy()
-    cuda_device = env["CUDA_VISIBLE_DEVICES"]
     motionbert_feats_list = run_motionbert(
         sliced_vid_list,
         sliced_alphapose_list,
         sliced_motionbert_dir,
-        cuda_device,
         conda_env,
         skip_if_exists=skip_if_exists,
     )
