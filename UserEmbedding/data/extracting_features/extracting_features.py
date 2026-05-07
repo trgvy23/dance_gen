@@ -172,7 +172,6 @@ def extract_feat_using_alphapose(
         sliced_vid_list: list of sliced .mp4 paths
         raw_alphapose_out_dir: directory to save raw AlphaPose outputs
         final_alphapose_out_dir: directory to save final AlphaPose outputs
-        cuda_devices: comma-separated list of CUDA device IDs
         conda_env: conda environment name for AlphaPose
 
     Returns:
@@ -182,11 +181,14 @@ def extract_feat_using_alphapose(
         assert os.path.exists(path), f"Sliced video path {path} not found"
     ensure_dir(raw_alphapose_out_dir, create_new=not skip_if_exists)
     ensure_dir(final_alphapose_out_dir, create_new=not skip_if_exists)
+    env = os.environ.copy()
+    cuda_device = env["CUDA_VISIBLE_DEVICES"]
     alphapose_feats_list = run_alphapose(
         sliced_vid_list,
         raw_alphapose_out_dir,
         final_alphapose_out_dir,
-        conda_env=conda_env,
+        cuda_device,
+        conda_env,
         skip_if_exists=skip_if_exists,
     )
     return alphapose_feats_list
@@ -220,10 +222,13 @@ def extract_feat_using_motionbert(
         #     f"video file name: {os.path.splitext(os.path.basename(v))[0]}, alphapose file name: {os.path.splitext(os.path.basename(j))[0]}")
         assert os.path.splitext(os.path.basename(v))[0] == \
             os.path.splitext(os.path.basename(j))[0]
+    env = os.environ.copy()
+    cuda_device = env["CUDA_VISIBLE_DEVICES"]
     motionbert_feats_list = run_motionbert(
         sliced_vid_list,
         sliced_alphapose_list,
         sliced_motionbert_dir,
+        cuda_device,
         conda_env,
         skip_if_exists=skip_if_exists,
     )
@@ -273,6 +278,15 @@ def extract_jukebox_feat_sliced_audio(
     ]
 
 
+def remove_data_in_directory(data_dir: str, data_list: list):
+    data_list = set(data_list)
+
+    for root, _, files in os.walk(data_dir):
+        for f in files:
+            if os.path.splitext(f)[0] in data_list:
+                os.remove(os.path.join(root, f))
+
+
 def extract_data_feats(
     data_dir: str,
     data_list: list,
@@ -288,10 +302,13 @@ def extract_data_feats(
     video_slice_out_dir = f"{data_dir}/video_sliced/"
     assert os.path.exists(
         video_slice_out_dir), f"Video slice dir not found: {video_slice_out_dir}"
-    baseline_feat_sliced_audio = f"{data_dir}/baseline_feats"
-    ensure_dir(baseline_feat_sliced_audio, create_new=not skip_if_exists)
-    jukebox_feat_sliced_audio = f"{data_dir}/jukebox_feats"
-    ensure_dir(jukebox_feat_sliced_audio, create_new=not skip_if_exists)
+    motions_slice_out_dir = f"{data_dir}/motions_sliced/"
+    assert os.path.exists(
+        motions_slice_out_dir), f"Motions slice dir not found: {motions_slice_out_dir}"
+    baseline_feat_sliced_audio_dir = f"{data_dir}/baseline_feats"
+    ensure_dir(baseline_feat_sliced_audio_dir, create_new=not skip_if_exists)
+    jukebox_feat_sliced_audio_dir = f"{data_dir}/jukebox_feats"
+    ensure_dir(jukebox_feat_sliced_audio_dir, create_new=not skip_if_exists)
     vid_feature_out_dir = f"{data_dir}/video_features_sliced/"
     ensure_dir(vid_feature_out_dir, create_new=not skip_if_exists)
     vid_mask_out_dir = f"{data_dir}/video_mask_sliced/"
@@ -315,13 +332,13 @@ def extract_data_feats(
 
     # extracting audio features
     baseline_feat_sliced_audio = extract_baseline_feat_sliced_audio(
-        audio_slice_out_dir, baseline_feat_sliced_audio, skip_if_exists=skip_if_exists
+        audio_slice_out_dir, baseline_feat_sliced_audio_dir, skip_if_exists=skip_if_exists
     )
     assert len(
         baseline_feat_sliced_audio) == expected_num_samples, f"Number of baseline audio features {len(baseline_feat_sliced_audio)} does not match number of data samples {expected_num_samples}"
 
     jukebox_feat_sliced_audio = extract_jukebox_feat_sliced_audio(
-        audio_slice_out_dir, jukebox_feat_sliced_audio, skip_if_exists=skip_if_exists
+        audio_slice_out_dir, jukebox_feat_sliced_audio_dir, skip_if_exists=skip_if_exists
     )
     assert len(
         jukebox_feat_sliced_audio) == expected_num_samples, f"Number of jukebox audio features {len(jukebox_feat_sliced_audio)} does not match number of data samples {expected_num_samples}"
@@ -333,13 +350,24 @@ def extract_data_feats(
     assert len(
         sliced_vid_list) == expected_num_samples, f"Number of sliced videos {len(sliced_vid_list)} does not match number of data samples {expected_num_samples}"
     # extract alphapose features
-    alphapose_feat_list = extract_feat_using_alphapose(
+    alphapose_feat_list, remove_data = extract_feat_using_alphapose(
         sliced_vid_list,
         raw_alphapose_out_dir,
         final_alphapose_out_dir,
         conda_env=alphapose_env,
         skip_if_exists=skip_if_exists,
     )
+    if len(remove_data) > 0:
+        print(
+            f"Warning: {len(remove_data)} videos failed AlphaPose processing and will be removed from dataset: {remove_data}")
+        remove_data_in_directory(video_slice_out_dir, remove_data)
+        remove_data_in_directory(audio_slice_out_dir, remove_data)
+        remove_data_in_directory(motions_slice_out_dir, remove_data)
+        remove_data_in_directory(baseline_feat_sliced_audio_dir, remove_data)
+        remove_data_in_directory(jukebox_feat_sliced_audio_dir, remove_data)
+        sliced_vid_list = [v for v in sliced_vid_list if os.path.splitext(
+            os.path.basename(v))[0] not in remove_data]
+        expected_num_samples -= len(remove_data)
     assert len(
         sliced_vid_list) == expected_num_samples, f"Number of sliced videos {len(sliced_vid_list)} does not match number of data samples {expected_num_samples}"
     # extract motionbert features

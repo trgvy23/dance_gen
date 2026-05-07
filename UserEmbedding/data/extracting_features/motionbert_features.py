@@ -12,12 +12,14 @@ MOTIONBERT_DIR = f"{ROOT_DIR}/pose_estimation"
 MB_ROOT = "/raid/ltnghia02/vyttt/MotionBERT"
 CONFIG = "configs/pose3d/MB_ft_h36m_global_lite.yaml"
 CHECKPOINT = "checkpoint/pose3d/FT_MB_lite_MB_ft_h36m_global_lite/best_epoch.bin"
+TIMEOUT = 300  # seconds
 
 
 def run_motionbert(
     sliced_video_list: list,
     sliced_alphapose_list: list,
     sliced_motionbert_dir: str,
+    cuda_device: str = None,
     conda_env: str = "motionbert",
     motionbert_dir: str = MB_ROOT,
     skip_if_exists: bool = False,
@@ -41,6 +43,8 @@ def run_motionbert(
 
     output_list = []
     env = os.environ.copy()
+    if cuda_device is not None:
+        env["CUDA_VISIBLE_DEVICES"] = cuda_device
 
     pbar = tqdm(
         zip(sliced_video_list, sliced_alphapose_list),
@@ -64,40 +68,56 @@ def run_motionbert(
         if skip_if_exists and os.path.exists(out_path):
             tqdm.write(f"Skip {base_name} (already exists)")
             output_list.append(out_path)
-            continue
 
-        if not os.path.exists(video_path):
+        elif not os.path.exists(video_path):
             tqdm.write(f"Video not found, skipping {base_name}")
             continue
 
-        if not os.path.exists(json_path):
+        elif not os.path.exists(json_path):
             tqdm.write(f"AlphaPose json not found, skipping {base_name}")
             continue
+        else:
+            cmd = [
+                # "conda", "run", "-n", conda_env,
+                # "python", "infer_wild_custom.py",
+                "/raid/ltnghia02/conda/envs/motionbert/bin/python",
+                "infer_wild_custom.py",
+                "--config", motionbert_cfg_path,
+                "--evaluate", motionbert_ckpt_path,
+                "--vid_path", video_path,
+                "--json_path", json_path,
+                "--out_path", sliced_motionbert_dir,
+                "--clip_len", "243",
+            ]
 
-        cmd = [
-            "conda", "run", "-n", conda_env,
-            "python", "infer_wild_custom.py",
-            "--config", motionbert_cfg_path,
-            "--evaluate", motionbert_ckpt_path,
-            "--vid_path", video_path,
-            "--json_path", json_path,
-            "--out_path", sliced_motionbert_dir,
-            "--clip_len", "243",
-        ]
+            try:
+                result = subprocess.run(
+                    cmd,
+                    cwd=motionbert_dir,
+                    env=env,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=TIMEOUT
+                )
+                if result.returncode != 0:
+                    tqdm.write(
+                        f"MotionBERT failed for {base_name} with return code {result.returncode}")
+                    continue
+            except subprocess.TimeoutExpired:
+                tqdm.write(f"Timeout expired for {base_name}, skipping.")
+                continue
+            except subprocess.CalledProcessError as e:
+                tqdm.write(
+                    f"Command failed with exit code {e.returncode}\nError Message: {e.stderr}")
 
-        subprocess.run(
-            cmd,
-            cwd=motionbert_dir,
-            env=env,
-            check=True,
-        )
+            if not os.path.exists(out_path):
+                raise RuntimeError(
+                    f"MotionBERT failed, output not found:\n{out_path}"
+                )
 
-        if not os.path.exists(out_path):
-            raise RuntimeError(
-                f"MotionBERT failed, output not found:\n{out_path}"
-            )
-
-        output_list.append(out_path)
+            output_list.append(out_path)
         time.sleep(2)
 
     return output_list
