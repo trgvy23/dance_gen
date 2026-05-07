@@ -425,7 +425,7 @@ def slice_dataset(
         video_path = os.path.join(vid_data_dir, data + ".mp4")
         music_path = os.path.join(music_data_dir, data + ".wav")
         motion_path = os.path.join(motion_data_dir, data + ".pkl")
-        pbar.set_postfix({"data": data})
+        pbar.set_postfix_str(f"Slicing {data}...")
 
         audios_sliced_list, videos_sliced_list, motions_sliced_list = slice_single_tuple(
             data_dir,

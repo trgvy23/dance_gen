@@ -11,9 +11,9 @@ import re
 # VID_DIR = "/raid/ltnghia02/vyttt/EDGE_modify/data/aist_plusplus_final/video"
 # OUT_RAW_ROOT = "/raid/ltnghia02/vyttt/EDGE_modify/data/aist_plusplus_final/pose_estimation_raw"
 # OUT_ROOT = "/raid/ltnghia02/vyttt/EDGE_modify/data/aist_plusplus_final/pose_estimation"
-VID_DIR = "/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/video"
-OUT_RAW_ROOT = "/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/pose_estimation_raw"
-OUT_ROOT = "/raid/ltnghia02/vyttt/dance_gen/UserEmbedding/datasets/edge_aistpp/pose_estimation"
+VID_DIR = "/raid/ltnghia02/vyttt/catb/dance_gen/dance_gen/UserEmbedding/data/test/video_sliced/"
+OUT_RAW_ROOT = "/raid/ltnghia02/vyttt/catb/dance_gen/dance_gen/UserEmbedding/data/test/pose_estimation_raw"
+OUT_ROOT = "/raid/ltnghia02/vyttt/catb/dance_gen/dance_gen/UserEmbedding/data/test/pose_estimation"
 AP_ROOT = "/raid/ltnghia02/vyttt/AlphaPose"
 ALPHA_POSE_FILE = f"{AP_ROOT}/scripts/demo_inference.py"
 CFG = f"{AP_ROOT}/configs/halpe_26/resnet/256x192_res50_lr1e-3_1x.yaml"
@@ -24,6 +24,7 @@ MAX_FRAMES = 243            # total frames
 LAST_FRAME = MAX_FRAMES - 1  # 242
 KEYPOINT_DIM = 78
 ZERO_KEYPOINTS = [0] * KEYPOINT_DIM
+TIMEOUT = 300  # seconds
 # ==================
 
 FRAME_RE = re.compile(r"(\d+)\.jpg")
@@ -193,12 +194,16 @@ def run_alphapose(
     vid_list: list,
     out_raw_json_dir: str = OUT_RAW_ROOT,
     out_json_dir: str = OUT_ROOT,
+    cuda_device: str = None,
     conda_env: str = "alphapose",
     alphapose_dir: str = AP_ROOT,
     skip_if_exists: bool = False,
-) -> list:
+) -> tuple[list[str], list[str]]:
     alphapose_out_list = []
+    remove_data = []
     env = os.environ.copy()
+    if cuda_device is not None:
+        env["CUDA_VISIBLE_DEVICES"] = cuda_device
 
     pbar = tqdm(vid_list, desc="AlphaPose inference")
     alphapose_script_path = os.path.join(
@@ -230,12 +235,29 @@ def run_alphapose(
                 "--outdir", os.path.join(out_raw_json_dir, vid_name),
                 "--save_video",
             ]
-            subprocess.run(
-                cmd,
-                cwd=alphapose_dir,
-                env=env,
-                check=True,
-            )
+            try:
+                result = subprocess.run(
+                    cmd,
+                    cwd=alphapose_dir,
+                    env=env,
+                    check=True,
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.PIPE,
+                    text=True,
+                    timeout=TIMEOUT
+                )
+                if result.returncode != 0:
+                    tqdm.write(
+                        f"AlphaPose failed for {vid_file_name} with return code {result.returncode}")
+                    remove_data.append(vid_name)
+                    continue
+            except subprocess.TimeoutExpired:
+                tqdm.write(f"Timeout expired for {vid_file_name}, skipping.")
+                remove_data.append(vid_name)
+                continue
+            except subprocess.CalledProcessError as e:
+                tqdm.write(f"Command failed with exit code {e.returncode}")
+                tqdm.write(f"Error Message: {e.stderr}")
 
         check_result_file(raw_file_path)
         if os.path.exists(final_file_path):
@@ -248,11 +270,20 @@ def run_alphapose(
         alphapose_out_list.append(final_file_path)
         time.sleep(2)
 
-    return alphapose_out_list
+    return alphapose_out_list, remove_data
+
+
+def get_vid_list(vid_dir_path=VID_DIR):
+    return [
+        os.path.abspath(os.path.join(vid_dir_path, f))
+        for f in os.listdir(vid_dir_path)
+        if os.path.isfile(os.path.join(vid_dir_path, f))
+    ]
 
 
 if __name__ == "__main__":
     # Get CUDA device from command-line argument (default: "0")
     cuda_device = sys.argv[1] if len(sys.argv) > 1 else None
     print(f"Using CUDA device: {cuda_device}")
-    run_alphapose(cuda_device)
+    _, skip = run_alphapose(get_vid_list())
+    print(f"Skipped videos due to timeout: {skip}")
