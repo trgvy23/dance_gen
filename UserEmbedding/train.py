@@ -3,8 +3,8 @@ from src.UserEmbedding import UserEmbedding
 
 
 def train(args):
-    model = UserEmbedding(args.checkpoint)
-    model.train(args)
+    model = UserEmbedding(args)
+    model.train()
 
 
 if __name__ == "__main__":
