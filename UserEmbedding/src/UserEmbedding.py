@@ -29,7 +29,8 @@ from pytorch_metric_learning import distances, losses, miners, reducers, testers
 from pytorch_metric_learning.samplers import MPerClassSampler
 from pytorch_metric_learning.utils import accuracy_calculator
 
-from data.dataset import DanceDataset, build_label_mappings
+from data.dataset import DanceDataset, FreezeUserEmbeddingDanceDataset
+from data.dataset.dataset_utils import build_label_mappings
 from src.models import UserEmbeddingNet
 from src.backbone import MotionBERTBackbone
 
@@ -176,16 +177,58 @@ class UserEmbedding:
         test_tensor_dataset_path = os.path.join(
             args.processed_data_dir, f"test_tensor_dataset.pkl"
         )
+        if args.eval_only:
+            print("Evaluation only mode")
+            self.user_embedding_net = self.accelerator.prepare(
+                self.user_embedding_net)
+            self.run_evaluation(epoch=0, save_vis=True)
+            exit(0)
+        else:
+            self.writer = SummaryWriter(self.log_dir)
+            if not os.path.exists(self.log_dir):
+                os.makedirs(self.log_dir)
+            print("Log dir:", self.log_dir)
+            self.log_folder_runs = "./runs/{}".format(
+                self.log_dir.split("/")[-1])
+            if not os.path.exists(self.log_folder_runs):
+                os.system(f"mkdir -p {self.log_folder_runs}")
+
+            # Write configuration file to the log dir
+            self.hparams.dump(self.log_dir, "config.json")
+
+            self.print_every = self.hparams.Train.print_every
+            self.max_iters = self.hparams.Train.max_iters
+            self.save_every = self.hparams.Train.checkpoint_every
+            self.eval_every = self.hparams.Train.evaluate_every
+
+            # ---- Freezing config ----
+            # TODO: Fix this
+            self.user_embedding_frozen = getattr(
+                args, "user_embedding_frozen", False)
+            print("Initial user_embedding_frozen:", self.user_embedding_frozen)
+            self.freeze_after_epoch = getattr(args, "freeze_after_epoch", None)
+            self.freeze_loss_threshold = getattr(
+                args, "freeze_loss_threshold", None)
+
         if (
             getattr(args, "cache_data", False)
             and os.path.isfile(train_tensor_dataset_path)
             and os.path.isfile(test_tensor_dataset_path)
         ):
-            self.train_dataset = pickle.load(open(train_tensor_dataset_path, "rb"))
-            self.test_dataset = pickle.load(open(test_tensor_dataset_path, "rb"))
+            self.train_dataset = pickle.load(
+                open(train_tensor_dataset_path, "rb"))
+            self.test_dataset = pickle.load(
+                open(test_tensor_dataset_path, "rb"))
         else:
-
             self.train_dataset = DanceDataset(
+                data_path=args.data_path,
+                backup_path=args.processed_data_dir,
+                train=True,
+                force_reload=getattr(args, "force_reload", False),
+                cache_data=getattr(args, "cache_data", False),
+                genre2id=genre2id,
+                dancer2id=dancer2id,
+            ) if not self.user_embedding_frozen else FreezeUserEmbeddingDanceDataset(
                 data_path=args.data_path,
                 backup_path=args.processed_data_dir,
                 train=True,
@@ -196,6 +239,15 @@ class UserEmbedding:
             )
 
             self.test_dataset = DanceDataset(
+                data_path=args.data_path,
+                backup_path=args.processed_data_dir,
+                train=False,
+                force_reload=getattr(args, "force_reload", False),
+                cache_data=getattr(args, "cache_data", False),
+                genre2id=genre2id,
+                dancer2id=dancer2id,
+                normalizer=self.train_dataset.normalizer,
+            ) if not self.user_embedding_frozen else FreezeUserEmbeddingDanceDataset(
                 data_path=args.data_path,
                 backup_path=args.processed_data_dir,
                 train=False,
@@ -235,35 +287,6 @@ class UserEmbedding:
                 margin=0.2, distance=self.distance
             )
             self.mu_triplet = getattr(args, "mu_triplet", 0.2)
-
-        if args.eval_only:
-            print("Evaluation only mode")
-            self.user_embedding_net = self.accelerator.prepare(self.user_embedding_net)
-            self.run_evaluation(epoch=0, save_vis=True)
-            exit(0)
-        else:
-            self.writer = SummaryWriter(self.log_dir)
-            if not os.path.exists(self.log_dir):
-                os.makedirs(self.log_dir)
-            print("Log dir:", self.log_dir)
-            self.log_folder_runs = "./runs/{}".format(self.log_dir.split("/")[-1])
-            if not os.path.exists(self.log_folder_runs):
-                os.system(f"mkdir -p {self.log_folder_runs}")
-
-            # Write configuration file to the log dir
-            self.hparams.dump(self.log_dir, "config.json")
-
-            self.print_every = self.hparams.Train.print_every
-            self.max_iters = self.hparams.Train.max_iters
-            self.save_every = self.hparams.Train.checkpoint_every
-            self.eval_every = self.hparams.Train.evaluate_every
-
-            # ---- Freezing config ----
-            # TODO: Fix this
-            self.user_embedding_frozen = getattr(args, "user_embedding_frozen", False)
-            print("Initial user_embedding_frozen:", self.user_embedding_frozen)
-            self.freeze_after_epoch = getattr(args, "freeze_after_epoch", None)
-            self.freeze_loss_threshold = getattr(args, "freeze_loss_threshold", None)
 
     def freeze_user_embedding(self):
         if self.user_embedding_frozen:
@@ -373,7 +396,8 @@ class UserEmbedding:
                         self.normalizer,
                         epoch,
                         os.path.join("render", "train"),
-                        fk_out=os.path.join("render", f"{epoch}", "motion_result"),
+                        fk_out=os.path.join(
+                            "render", f"{epoch}", "motion_result"),
                         name=wavnames[:render_count],
                         sound=True,
                     )
@@ -385,7 +409,8 @@ class UserEmbedding:
 
                 dancer_pred = dancer_logits.argmax(dim=1)
 
-                total_correct_dancer += (dancer_pred == dancer_label).sum().item()
+                total_correct_dancer += (dancer_pred ==
+                                         dancer_label).sum().item()
                 total_samples += dancer_label.size(0)
 
         # concat within each process
@@ -398,7 +423,8 @@ class UserEmbedding:
 
         # gather across processes
         all_embs = self.accelerator.gather_for_metrics(all_embs)
-        all_dancer_labels = self.accelerator.gather_for_metrics(all_dancer_labels)
+        all_dancer_labels = self.accelerator.gather_for_metrics(
+            all_dancer_labels)
 
         total_correct_dancer = torch.tensor(
             total_correct_dancer,
@@ -442,9 +468,11 @@ class UserEmbedding:
                     save_path,
                     embeddings=local_embs.cpu().numpy(),  # [N_total, D]
                     dancer_labels=local_labels.cpu().numpy(),  # [N_total]
-                    filenames=np.array(local_filenames),  # [N_total] of strings
+                    # [N_total] of strings
+                    filenames=np.array(local_filenames),
                 )
-                print(f"[Eval] (main) Saved {split} embeddings for viz to {save_path}")
+                print(f"[Eval] (main) Saved {
+                      split} embeddings for viz to {save_path}")
 
         return all_embs, all_dancer_labels, dancer_acc
 
@@ -582,7 +610,8 @@ class UserEmbedding:
         # TODO: K ở đây là số sample mỗi class, batch size = P * K (P là số class trong batch)
         K = 8
         sampler = MPerClassSampler(
-            labels=all_dancer_labels, m=K, length_before_new_iter=len(all_dancer_labels)
+            labels=all_dancer_labels, m=K, length_before_new_iter=len(
+                all_dancer_labels)
         )
         train_data_loader = DataLoader(
             self.train_dataset,
@@ -747,7 +776,7 @@ class UserEmbedding:
                     log_msg = "[{}], eta: {}, iter: {}, progress: {:.2f}%, epoch: {}, dancer loss: {:.4f}, \
                         avg_dancer_cls loss: {:.4f}, avg_pose_recon: {:.4f}, total loss: {:.4f}\
                             avg_edge_loss: {:.4f}, avg_vloss: {:.4f}, avg_fkloss: {:.4f}, avg_footloss: {:.4f}".format(
-                        time[time.rfind(" ") + 1 : time.rfind(".")],
+                        time[time.rfind(" ") + 1: time.rfind(".")],
                         eta[: eta.rfind(".")],
                         self.global_step,
                         (self.global_step / self.max_iters) * 100,
@@ -775,7 +804,8 @@ class UserEmbedding:
                         "avg_footloss": avg_footloss,
                     }
 
-                    self.log_dict(self.writer, loss_dict_avg, self.global_step, "train")
+                    self.log_dict(self.writer, loss_dict_avg,
+                                  self.global_step, "train")
                     self.writer.add_scalar(
                         "train/lr",
                         self.optimizer.param_groups[0]["lr"],
@@ -812,7 +842,8 @@ class UserEmbedding:
                 or self.global_step >= self.max_iters
             ):
                 if self.accelerator.is_main_process:
-                    save_path = os.path.join(self.log_dir, f"ckp_{self.global_step}.pt")
+                    save_path = os.path.join(self.log_dir, f"ckp_{
+                                             self.global_step}.pt")
                     ckp = {
                         "emb_model": self.accelerator.get_state_dict(
                             self.user_embedding_net
@@ -844,7 +875,8 @@ class UserEmbedding:
                         self.global_step / len(train_data_loader),
                         self.global_step,
                     )
-                    os.system(f"cp {self.log_dir}/events* {self.log_folder_runs}")
+                    os.system(
+                        f"cp {self.log_dir}/events* {self.log_folder_runs}")
 
             if self.global_step >= self.max_iters:
                 print("Exit program!")
