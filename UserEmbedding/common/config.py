@@ -44,7 +44,7 @@ class JsonConfig(dict):
                              " with type {}").format(type(arg)))
 
     def __setattr__(self, attr, value):
-    #     raise Exception("[JsonConfig]: Can't set constant key {}".format(attr))
+        #     raise Exception("[JsonConfig]: Can't set constant key {}".format(attr))
         try:
             return super().__setitem__(attr, value)
         except KeyError:

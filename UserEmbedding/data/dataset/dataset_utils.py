@@ -71,8 +71,7 @@ def crop_scale(motion, scale_range=[1, 1]):
     xmax = max(valid_coords[:, 0])
     ymin = min(valid_coords[:, 1])
     ymax = max(valid_coords[:, 1])
-    ratio = np.random.uniform(
-        low=scale_range[0], high=scale_range[1], size=1)[0]
+    ratio = np.random.uniform(low=scale_range[0], high=scale_range[1], size=1)[0]
     scale = max(xmax - xmin, ymax - ymin) * ratio
     if scale == 0:
         return np.zeros(motion.shape)
@@ -107,10 +106,8 @@ def build_label_mappings(data_path: str, splits=("train", "test")):
 
     for split in splits:
         split_root = os.path.join(data_path, split)
-        video_embedding_path = os.path.join(
-            split_root, "video_features_sliced")
-        print(f"Scanning {split} split in {
-              video_embedding_path} for label mappings...")
+        video_embedding_path = os.path.join(split_root, "video_features_sliced")
+        print(f"Scanning {split} split in {video_embedding_path} for label mappings...")
         video_embeddings = sorted(
             glob.glob(os.path.join(video_embedding_path, "*.npy"))
         )

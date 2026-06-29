@@ -18,7 +18,7 @@ from pytorch3d.transforms import (
 )
 from data.preprocess import Normalizer, vectorize_many
 from data.quaternion import ax_to_6v
-from dataset_utils import (
+from .dataset_utils import (
     halpe2h36m,
     crop_scale,
     parse_aist_labels_from_name,
@@ -82,13 +82,21 @@ class FreezeUserEmbeddingDanceDataset(Dataset):
                 with open(os.path.join(backup_path, pickle_name), "wb") as f:
                     pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
 
-        logging.info("Loaded %s Dataset With Dimensions:\n\tGenre Labels: %s,\n\tDancer Labels: %s",
-                     self.name, data['genre_labels'].shape, data['dancer_labels'].shape)
+        logging.info(
+            "Loaded %s Dataset With Dimensions:\n\tGenre Labels: %s,\n\tDancer Labels: %s",
+            self.name,
+            data["genre_labels"].shape,
+            data["dancer_labels"].shape,
+        )
         logging.info("Pos: %d, Q: %d", data["pos"].shape, data["q"].shape)
 
         pose_input = self.process_dataset(data["pos"], data["q"])
 
         self.data = {
+            "embs": data["embs"],
+            "dance_logits": data["dance_logits"],
+            "pose_recon": data["pose_recon"],
+            "pose_estimations": data["pose_estimations"],
             "genre_labels": data["genre_labels"],
             "dancer_labels": data["dancer_labels"],
             "pose": pose_input,
@@ -97,13 +105,17 @@ class FreezeUserEmbeddingDanceDataset(Dataset):
         }
 
         assert (
-            len(data["genre_labels"])
+            len(data["embs"])
+            == len(data["dance_logits"])
+            == len(data["pose_recon"])
+            == len(data["pose_estimations"])
+            == len(data["genre_labels"])
             == len(data["dancer_labels"])
             == len(pose_input)
             == len(data["filenames"])
             == len(data["wavs"])
         )
-        self.length = len(data["video_embeddings"])
+        self.length = len(data["embs"])
 
     def __len__(self):
         return self.length
@@ -112,6 +124,10 @@ class FreezeUserEmbeddingDanceDataset(Dataset):
         filename_ = self.data["filenames"][idx]
         feature = torch.from_numpy(np.load(filename_))
         return (
+            self.data["embs"][idx],
+            self.data["dance_logits"][idx],
+            self.data["pose_recon"][idx],
+            self.data["pose_estimations"][idx],
             self.data["genre_labels"][idx],
             self.data["dancer_labels"][idx],
             self.data["pose"][idx],
@@ -163,8 +179,7 @@ class FreezeUserEmbeddingDanceDataset(Dataset):
         if self.fixed_label_maps:
             # We expect these to already exist in the global mapping
             assert genre_code in self.genre2id, f"Unknown genre {genre_code}"
-            assert dancer_code in self.dancer2id, f"Unknown dancer {
-                dancer_code}"
+            assert dancer_code in self.dancer2id, f"Unknown dancer {dancer_code}"
             genre_id = self.genre2id[genre_code]
             dancer_id = self.dancer2id[dancer_code]
         else:
@@ -237,8 +252,7 @@ class FreezeUserEmbeddingDanceDataset(Dataset):
 
         global_pose_vec_input = global_pose_vec_input
 
-        print(f"{data_name} Dataset Motion Features Dim: {
-              global_pose_vec_input.shape}")
+        print(f"{data_name} Dataset Motion Features Dim: {global_pose_vec_input.shape}")
 
         return global_pose_vec_input
 
@@ -253,38 +267,54 @@ class FreezeUserEmbeddingDanceDataset(Dataset):
         #   |    |- videos
         #   |    |- pose_estimation
 
+        embed_path = os.path.join(split_root, "feat_embeddings")
+        pose_estimation_path = os.path.join(
+            split_root, "pose_estimation_sliced")
         motion_path = os.path.join(split_root, "motions_sliced")
         wav_path = os.path.join(split_root, "wavs_sliced")
         sound_path = os.path.join(split_root, f"{self.feature_type}_feats")
 
-        # sort motions and sounds
+        # sort data by name
+        embeddings = sorted(glob.glob(os.path.join(embed_path, "*.npz")))
+        pose_estimations = sorted(
+            glob.glob(os.path.join(pose_estimation_path, "*.json"))
+        )
         motions = sorted(glob.glob(os.path.join(motion_path, "*.pkl")))
         features = sorted(glob.glob(os.path.join(sound_path, "*.npy")))
         wavs = sorted(glob.glob(os.path.join(wav_path, "*.wav")))
 
         assert (
-            len(motions)
-            == len(features)
-            == len(wavs)
-        ), f"Count mismatch: motions={len(motions)}, \
+            len(embeddings) == len(pose_estimations) == len(
+                motions) == len(features) == len(wavs) == len(embeddings)
+        ), f"Count mismatch: embeddings={len(embeddings)}, \
+            pose_estimations={len(pose_estimations)}, \
+            motions={len(motions)}, \
             features={len(features)}, \
             wavs={len(wavs)}"
 
         (
+            all_embeddings,
+            all_dance_logits,
+            all_pose_recon,
+            all_pose_estimations,
             all_genre_labels,
             all_dancer_labels,
             all_pos,
             all_q,
             all_wavs,
             all_names,
-        ) = ([], [], [], [], [], [])
+        ) = ([], [], [], [], [], [], [], [], [], [])
 
         for (
+            embedding,
+            pose_estimation,
             motion,
             feature,
             wav,
         ) in tqdm(
             zip(
+                embeddings,
+                pose_estimations,
                 motions,
                 features,
                 wavs,
@@ -293,26 +323,40 @@ class FreezeUserEmbeddingDanceDataset(Dataset):
             desc="Loading data",
         ):
             m_name = os.path.splitext(os.path.basename(motion))[0]
+            p_name = os.path.splitext(os.path.basename(pose_estimation))[0]
             f_name = os.path.splitext(os.path.basename(feature))[0]
             w_name = os.path.splitext(os.path.basename(wav))[0]
 
             assert (
-                m_name == f_name == w_name
-            ), f"Name mismatch {m_name}, {f_name}, {w_name}"
+                m_name == p_name == f_name == w_name
+            ), f"Name mismatch {m_name}, {p_name}, {f_name}, {w_name}"
+
+            pose_est = self.read_pose_estimation(
+                pose_estimation, vid_size=None)
+            all_pose_estimations.append(pose_est)
 
             genre_id, dancer_id = self.read_label(m_name)
             all_genre_labels.append(genre_id)
             all_dancer_labels.append(dancer_id)
 
-            with pickle.load(open(motion, "rb")) as data:
-                # print(data.keys())
-                pos = data["smpl_trans"]
-                q = data["smpl_poses"]
-                all_pos.append(pos)
-                all_q.append(q)
-                all_names.append(feature)
-                all_wavs.append(wav)
+            # print(data.keys())
+            data_npz = np.load(embedding)
+            all_embeddings.append(data_npz["embs"])
+            all_dance_logits.append(data_npz["dance_logits"])
+            all_pose_recon.append(data_npz["pose_recon"])
 
+            data = pickle.load(open(motion, "rb"))
+            pos = data["smpl_trans"]
+            q = data["smpl_poses"]
+            all_pos.append(pos)
+            all_q.append(q)
+            all_names.append(feature)
+            all_wavs.append(wav)
+
+        all_embeddings = np.array(all_embeddings)
+        all_dance_logits = np.array(all_dance_logits)
+        all_pose_recon = np.array(all_pose_recon)
+        all_pose_estimations = np.array(all_pose_estimations)  # N x T x 17 x 3
         all_genre_labels = np.array(all_genre_labels)  # N
         all_dancer_labels = np.array(all_dancer_labels)  # N
         all_pos = np.array(all_pos)  # N x seq x 3
@@ -323,6 +367,10 @@ class FreezeUserEmbeddingDanceDataset(Dataset):
         # all_q = all_q[:, :: self.data_stride, :]
 
         data = {
+            "embs": all_embeddings,
+            "dance_logits": all_dance_logits,
+            "pose_recon": all_pose_recon,
+            "pose_estimations": all_pose_estimations,
             "genre_labels": all_genre_labels,
             "dancer_labels": all_dancer_labels,
             "pos": all_pos,
@@ -331,6 +379,10 @@ class FreezeUserEmbeddingDanceDataset(Dataset):
             "wavs": all_wavs,
         }
 
+        print("Embeddings Shape:", all_embeddings.shape)
+        print("Dance Logits Shape:", all_dance_logits.shape)
+        print("Pose Recon Shape:", all_pose_recon.shape)
+        print("Pose Estimations Shape:", all_pose_estimations.shape)
         print("Genre Labels Shape:", all_genre_labels.shape)
         print("Dancer Labels Shape:", all_dancer_labels.shape)
         print("pos Shape:", all_pos.shape)

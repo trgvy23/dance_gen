@@ -20,7 +20,7 @@ from pytorch3d.transforms import (
 )
 from data.preprocess import Normalizer, vectorize_many
 from data.quaternion import ax_to_6v
-from dataset_utils import (
+from .dataset_utils import (
     halpe2h36m,
     crop_scale,
     parse_aist_labels_from_name,
@@ -86,8 +86,7 @@ class DanceDataset(Dataset):
                     pickle.dump(data, f, pickle.HIGHEST_PROTOCOL)
 
         logging.info(
-            f"Loaded {self.name} Dataset With Dimensions: \n\tVideo embeddings: {data['video_embeddings'].shape}, \n\tPose Estimations: {data['pose_estimations'].shape}, \n\tPose Masks: {
-                data['video_masks'].shape}, \n\tGenre Labels: {data['genre_labels'].shape}, \n\tDancer Labels: {data['dancer_labels'].shape}"
+            f"Loaded {self.name} Dataset With Dimensions: \n\tVideo embeddings: {data['video_embeddings'].shape}, \n\tPose Estimations: {data['pose_estimations'].shape}, \n\tPose Masks: {data['video_masks'].shape}, \n\tGenre Labels: {data['genre_labels'].shape}, \n\tDancer Labels: {data['dancer_labels'].shape}"
         )
         logging.info("Pos: {}, Q: {}".format(
             data["pos"].shape, data["q"].shape))
@@ -178,8 +177,7 @@ class DanceDataset(Dataset):
         if self.fixed_label_maps:
             # We expect these to already exist in the global mapping
             assert genre_code in self.genre2id, f"Unknown genre {genre_code}"
-            assert dancer_code in self.dancer2id, f"Unknown dancer {
-                dancer_code}"
+            assert dancer_code in self.dancer2id, f"Unknown dancer {dancer_code}"
             genre_id = self.genre2id[genre_code]
             dancer_id = self.dancer2id[dancer_code]
         else:
@@ -252,8 +250,7 @@ class DanceDataset(Dataset):
 
         global_pose_vec_input = global_pose_vec_input
 
-        print(f"{data_name} Dataset Motion Features Dim: {
-              global_pose_vec_input.shape}")
+        print(f"{data_name} Dataset Motion Features Dim: {global_pose_vec_input.shape}")
 
         return global_pose_vec_input
 

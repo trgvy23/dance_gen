@@ -4,6 +4,9 @@ from src.UserEmbedding import UserEmbedding
 
 def train(args):
     model = UserEmbedding(args)
+    if args.extract_embeddings:
+        model.extract_embeddings()
+        return
     model.train()
 
 
